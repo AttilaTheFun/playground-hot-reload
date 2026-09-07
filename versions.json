@@ -1,5 +1,11 @@
 [
   {
+    "version": "v3",
+    "url": "v3.wasm",
+    "notes": "Snapchat mock (safe area + keyboard fixes)",
+    "published": "2026-09-07T22:16:21Z"
+  },
+  {
     "version": "v2",
     "url": "v2.wasm",
     "notes": "hot demo",
