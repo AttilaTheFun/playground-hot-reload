@@ -1,5 +1,11 @@
 [
   {
+    "version": "v2",
+    "url": "v2.wasm",
+    "notes": "hot demo",
+    "published": "2026-09-07T22:10:50Z"
+  },
+  {
     "version": "v1",
     "url": "v1.wasm",
     "notes": "tap counter",
