@@ -1,1 +1,1449 @@
-/Users/logan/Library/Caches/bazel/_bazel_logan/27702149f2cbec9479a487f25d3e9680/execroot/_main/bazel-out/darwin_arm64-fastbuild/bin/web/splash_web_application/splash_web_application_site/runtime/react_renderer.js
+// The web half of the ReactRenderer (the component-system renderer
+// bound by uuiStart when the page asks for "react").
+//
+// Interprets the runtime's serialized view tree (docs/renderer_layers.md) as
+// React elements built from web-native components: flex layout, real inputs
+// (<input type=search|date|checkbox>, <select>), a header nav bar, a bottom
+// tab bar, and modal presentations. Interactive nodes report back through
+// `sendEvent(id, value)` (which feeds Runtime.hostViewEvent). React owns
+// layout and reconciliation — the runtime never computes frames or emits
+// draw commands under this binding.
+//
+// Uses the React 18 UMD globals (window.React / window.ReactDOM), served
+// from the hermetic @react_umd repositories next to this bundle.
+
+export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/", mapSurface = null }) {
+  const R = window.React;
+  const h = R.createElement;
+  const root = window.ReactDOM.createRoot(container);
+
+  if (!document.getElementById("uui-react-style")) {
+    const style = document.createElement("style");
+    style.id = "uui-react-style";
+    style.textContent =
+      "@keyframes uui-spin{to{transform:rotate(1turn)}}" +
+      ".uui-spinner{width:22px;height:22px;border-radius:50%;flex:none;" +
+      "border:2.5px solid rgba(120,120,128,0.3);border-top-color:rgba(120,120,128,0.9);" +
+      "animation:uui-spin 0.8s linear infinite}" +
+      ".uui-tap{transition:background-color 0.12s}" +
+      ".uui-tap:active{background-color:rgba(120,120,128,0.18) !important}" +
+      ".uui-switch{appearance:none;-webkit-appearance:none;width:44px;height:26px;flex:none;" +
+      "border-radius:13px;background:rgba(120,120,128,0.35);position:relative;outline:none;" +
+      "cursor:pointer;transition:background 0.15s;border:none;margin:0}" +
+      ".uui-switch:checked{background:#34c759}" +
+      ".uui-switch::after{content:'';position:absolute;left:2px;top:2px;width:22px;height:22px;" +
+      "border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);transition:left 0.15s}" +
+      ".uui-switch:checked::after{left:20px}";
+    document.head.appendChild(style);
+  }
+
+  const rgba = (c) =>
+    c ? `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3]})` : undefined;
+
+  const alignCSS = { leading: "flex-start", center: "center", trailing: "flex-end", top: "flex-start", bottom: "flex-end" };
+
+  function gradientCSS(n) {
+    if (!n.gradient) return undefined;
+    try {
+      const g = JSON.parse(n.gradient);
+      const colors = (g.stops || [])
+        .map((stop) => `${rgba(stop.c)} ${Math.round((stop.l || 0) * 100)}%`)
+        .join(",");
+      if (!colors) return undefined;
+      if (g.kind === "radial") return `radial-gradient(circle, ${colors})`;
+      if (g.kind === "angular") return `conic-gradient(${colors})`;
+      if (g.kind === "solid") return rgba((g.stops[0] || {}).c);
+      const angle = g.p0 && g.p1
+        ? Math.atan2(g.p1[1] - g.p0[1], g.p1[0] - g.p0[0]) * 180 / Math.PI + 90
+        : 180;
+      return `linear-gradient(${angle}deg, ${colors})`;
+    } catch (_) {
+      return undefined;
+    }
+  }
+
+  function baseStyle(n) {
+    const s = { boxSizing: "border-box" };
+    if (n.padding) {
+      s.paddingTop = n.padding[0];
+      s.paddingLeft = n.padding[1];
+      s.paddingBottom = n.padding[2];
+      s.paddingRight = n.padding[3];
+    }
+    if (n.width != null) s.width = n.width;
+    if (n.height != null) s.height = n.height;
+    if (n.bg) s.background = rgba(n.bg);
+    const gradient = gradientCSS(n);
+    if (gradient) s.background = gradient;
+    // cornerRadius has CLIP semantics (SwiftUI clips to the rounded rect);
+    // without overflow:hidden an oversized child (a fill image) pokes past
+    // the rounded corners and the frame itself.
+    if (n.radius) { s.borderRadius = n.radius; s.overflow = "hidden"; }
+    if (n.opacity != null) s.opacity = n.opacity;
+    if (n.shadow) {
+      s.boxShadow = `${n.shadow.x}px ${n.shadow.y}px ${n.shadow.radius * 2}px ${rgba(n.shadow.color)}`;
+    }
+    if (n.tap) s.cursor = "pointer";
+    // Visual transforms (.offset / .scaleEffect): per-frame values from the
+    // guest's animator, applied as a CSS transform about the center.
+    if (n.offsetX != null || n.offsetY != null || n.scale != null) {
+      const parts = [];
+      if (n.offsetX != null || n.offsetY != null) parts.push(`translate(${n.offsetX || 0}px, ${n.offsetY || 0}px)`);
+      if (n.scale != null) parts.push(`scale(${n.scale})`);
+      s.transform = parts.join(" ");
+    }
+    if (n.drag) s.touchAction = "none";
+    return s;
+  }
+
+  // `.accessibilityLabel/Hint/Value/Identifier/Hidden` → ARIA / test ids.
+  function accessibility(n, props) {
+    const p = n.params;
+    if (!p) return props;
+    if (p.a11yLabel !== undefined) props["aria-label"] = p.a11yLabel;
+    if (p.a11yHint !== undefined) props["aria-description"] = p.a11yHint;
+    if (p.a11yValue !== undefined) props["aria-valuetext"] = p.a11yValue;
+    if (p.a11yId !== undefined) props["data-testid"] = p.a11yId;
+    if (p.a11yHidden === "1") props["aria-hidden"] = "true";
+    return props;
+  }
+
+  function interactive(n, props) {
+    accessibility(n, props);
+    const params = n.params || {};
+    if (params.tint) {
+      // `.tint`: buttons/links in the subtree read the accent from this var.
+      props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
+    }
+    if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
+    if (params.aspect) props.style = { ...(props.style || {}), aspectRatio: String(params.aspect) };
+    if (params.interp === "none") props.style = { ...(props.style || {}), imageRendering: "pixelated" };
+    if (params.posX !== undefined && params.posY !== undefined) {
+      // `.position`: the child's center at (x, y) in the parent (the parent
+      // is positioned; see the container rule in render()).
+      props.style = {
+        ...(props.style || {}), position: "absolute", left: Number(params.posX), top: Number(params.posY),
+        transform: ((props.style || {}).transform ? (props.style || {}).transform + " " : "") + "translate(-50%, -50%)",
+        width: "auto", height: "auto", flex: "none",
+      };
+    }
+    if (n.drag) {
+      // A guest DragGesture: pointer capture, translation reported as
+      // "changed:x,y" while moving and "ended:x,y" on release.
+      props.onPointerDown = (e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        e.currentTarget.__uuiDragStart = { x: e.clientX, y: e.clientY };
+      };
+      props.onPointerMove = (e) => {
+        const start = e.currentTarget.__uuiDragStart;
+        if (!start) return;
+        sendEvent(n.drag, `changed:${e.clientX - start.x},${e.clientY - start.y}`);
+      };
+      const end = (e) => {
+        const start = e.currentTarget.__uuiDragStart;
+        if (!start) return;
+        e.currentTarget.__uuiDragStart = null;
+        sendEvent(n.drag, `ended:${e.clientX - start.x},${e.clientY - start.y}`);
+      };
+      props.onPointerUp = end;
+      props.onPointerCancel = end;
+    }
+    if (n.tap) {
+      props["data-tap"] = n.tap; // exposed for headless smoke tests
+      props.onClick = (e) => {
+        e.stopPropagation();
+        sendEvent(n.tap, "");
+      };
+      // Web-idiomatic press feedback on tappable regions.
+      props.className = ((props.className || "") + " uui-tap").trim();
+      if (props.style.borderRadius == null) props.style.borderRadius = 8;
+    }
+    return props;
+  }
+
+  // A text input holding local state between keystroke echoes so re-renders
+  // from Swift don't reset the caret — but a PROGRAMMATIC guest change (a new
+  // serialized value that is neither the current text nor an in-flight edit
+  // echoing back, e.g. a chat composer clearing its draft on send) applies
+  // immediately, focused or not. The vertical-axis form
+  // (`TextField(_:text:axis: .vertical)`, params.axis "v") renders a textarea
+  // that grows with its content between minLines and maxLines
+  // (`.lineLimit(1...6)`), then scrolls internally.
+  function TextInput({ n }) {
+    const [value, setValue] = R.useState(n.v || "");
+    const pending = R.useRef([]);
+    const lastSerialized = R.useRef(n.v || "");
+    const areaRef = R.useRef(null);
+    R.useEffect(() => {
+      const v = n.v || "";
+      if (v === lastSerialized.current) return;
+      lastSerialized.current = v;
+      setValue((current) => {
+        if (v === current) {
+          pending.current = [];
+          return current;
+        }
+        const echo = pending.current.indexOf(v);
+        if (echo >= 0) {
+          // An older keystroke echoing back; the local text is newer.
+          pending.current.splice(0, echo + 1);
+          return current;
+        }
+        pending.current = [];
+        return v;
+      });
+    }, [n.v]);
+    const p = n.params || {};
+    const multiline = p.axis === "v";
+    const lineHeight = (n.size || 15) * 1.35;
+    const fit = () => {
+      const el = areaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      const max = Number(p.maxLines || 5) * lineHeight + (p.fieldStyle === "plain" ? 0 : 14);
+      el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+      el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+    };
+    R.useLayoutEffect(() => { if (multiline) fit(); });
+    // `.textFieldStyle(.plain)`: the text alone — no bezel, no background —
+    // for a field that sits inside its own bubble.
+    // The default (`.automatic`) draws no bezel, like SwiftUI's plain field on
+    // iOS — apps compose their own bubble — so only `.roundedBorder` gets one.
+    const plain = p.fieldStyle !== "roundedBorder";
+    const style = {
+      ...(n.baseStyle || {}),
+      fontSize: n.size || 15,
+      padding: plain ? 0 : "7px 10px",
+      border: plain ? "none" : "1px solid rgba(120,120,128,0.35)",
+      borderRadius: plain ? 0 : 8,
+      outline: "none",
+      background: plain ? "transparent" : "rgba(120,120,128,0.08)",
+      color: "inherit",
+      minWidth: 0,
+      alignSelf: "stretch",
+    };
+    // `.keyboardType` → inputmode/type hints; `.textInputAutocapitalization`
+    // and `.autocorrectionDisabled` → their HTML attributes.
+    const keyboardHints = {
+      numberPad: { inputMode: "numeric" }, decimalPad: { inputMode: "decimal" },
+      phonePad: { inputMode: "tel" }, emailAddress: { inputMode: "email" },
+      URL: { inputMode: "url" }, webSearch: { inputMode: "search" },
+      numbersAndPunctuation: { inputMode: "decimal" }, asciiCapableNumberPad: { inputMode: "numeric" },
+    }[p.keyboard] || {};
+    const autocap = p.autocap ? { autoCapitalize: p.autocap === "never" ? "off" : p.autocap } : {};
+    const autocorrect = p.autocorrect === "0" ? { autoCorrect: "off", spellCheck: false } : {};
+    // `.focused($state)`: the guest's wish drives focus; focus changes go back.
+    const focusRef = R.useRef(null);
+    R.useEffect(() => {
+      const el = focusRef.current || areaRef.current;  // textarea keeps its own ref
+      if (!el || !p.focusId) return;
+      const want = p.focus === "1";
+      if (want && document.activeElement !== el) el.focus();
+      else if (!want && document.activeElement === el) el.blur();
+    }, [p.focus, p.focusId]);
+    const focusHandlers = p.focusId ? {
+      onFocus: () => { if (p.focus !== "1") sendEvent(p.focusId, "1"); },
+      onBlur: () => { if (p.focus === "1") sendEvent(p.focusId, "0"); },
+    } : {};
+    const shared = {
+      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers,
+      ref: focusRef,
+      value,
+      placeholder: n.placeholder,
+      onChange: (e) => {
+        setValue(e.target.value);
+        pending.current.push(e.target.value);
+        if (n.edit) sendEvent(n.edit, e.target.value);
+      },
+      // `.onSubmit`: Enter submits (no newline); Shift/Alt+Enter inserts a
+      // newline in a multi-line field (the Messages composer shape).
+      onKeyDown: (e) => {
+        if (e.key !== "Enter" || e.isComposing) return;
+        if (multiline && (e.shiftKey || e.altKey)) return;
+        if (p.submit) {
+          e.preventDefault();
+          sendEvent(p.submit, "");
+        } else if (multiline && !e.shiftKey && !e.altKey) {
+          // No submit handler: Enter keeps its newline.
+        }
+      },
+    };
+    if (multiline) {
+      return h("textarea", {
+        ...shared,
+        ref: areaRef,
+        rows: Number(p.minLines || 1),
+        style: {
+          ...style,
+          lineHeight: `${lineHeight}px`,
+          resize: "none",
+          fontFamily: "inherit",
+        },
+      });
+    }
+    return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
+  }
+
+  // A segmented control (`.pickerStyle(.segmented)`, inline or in a bar).
+  function Segmented({ options, selected, dark, onSelect, compact }) {
+    return h("div", {
+      role: "tablist",
+      style: {
+        display: "inline-flex", padding: 2, borderRadius: 8, gap: 1,
+        background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
+        fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      },
+    }, options.map((label, i) => h("button", {
+      key: i,
+      role: "tab",
+      "aria-selected": i === selected,
+      onClick: () => onSelect(i),
+      style: {
+        border: "none", cursor: "pointer", borderRadius: 6,
+        padding: compact ? "3px 12px" : "4px 14px", fontSize: 13, fontWeight: 500,
+        background: i === selected ? (dark ? "rgba(120,120,128,0.8)" : "#fff") : "none",
+        color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+        boxShadow: i === selected ? "0 1px 3px rgba(0,0,0,0.15)" : "none",
+      },
+    }, label)));
+  }
+
+  function navBar(n) {
+    const p = n.params || {};
+    const dark = p.dark === "1";
+    const bar = {
+      display: "flex", alignItems: "center", width: "100%", height: 44, flex: "none",
+      boxSizing: "border-box", padding: "0 8px",
+      background: dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)",
+      backdropFilter: "blur(8px)",
+      borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+      color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+      fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+    };
+    // Bar items read as tappable: a tinted pill (fill + radius), like a
+    // bordered button, rather than a bare glyph.
+    const button = {
+      border: "none", background: "rgba(10,132,255,0.12)", color: "var(--uui-tint, #0a84ff)", fontSize: 15,
+      fontWeight: 500, cursor: "pointer", padding: "5px 11px", borderRadius: 9, flex: "0 0 auto",
+      minWidth: 34, lineHeight: "20px", margin: "0 2px",
+      fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+    };
+    // Toolbar items (`ToolbarItem(placement:)`): newline-joined title lists.
+    const split = (key) => (p[key] ? p[key].split("\n") : []);
+    const leading = split("leading");
+    const trailing = split("trailingItems");
+    // `.principal`: the trailing item at this index renders centered in
+    // place of the title (a tappable pill), the way a macOS/iOS bar does.
+    const principal = p.principal === "" || p.principal == null ? -1 : Number(p.principal);
+    // Segmented toolbar items: per trailing item, U+001F-joined labels.
+    const segments = split("segments").map((s) => (s ? s.split("\u001f") : []));
+    const segmentSelected = split("segmentSelected").map((s) => Number(s) || 0);
+    const prominent = split("prominent");
+    const trailingItem = (i, extra) => segments[i] && segments[i].length
+      ? h(Segmented, {
+          key: `t${i}`, options: segments[i], selected: segmentSelected[i] || 0, dark, compact: true,
+          onSelect: (j) => sendEvent(n.edit, `segment:${i}:${j}`),
+        })
+      : h("button", {
+          key: `t${i}`,
+          style: { ...button, ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
+          onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
+        }, trailing[i] || "");
+    // Symmetric side clusters keep the title centered.
+    const side = { display: "flex", alignItems: "center", minWidth: 64, flex: "0 0 auto" };
+    return h("div", { style: bar },
+      h("div", { style: side },
+        p.back === "1"
+          ? h("button", { key: "back", style: button, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) }, "‹ Back")
+          : null,
+        leading.map((title, i) => h("button", {
+          key: `l${i}`, style: button,
+          onClick: () => sendEvent(n.edit, `leading:${i}`),
+        }, title))),
+      h("div", {
+        style: {
+          flex: 1, textAlign: "center", fontWeight: 600, fontSize: 16,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          // Explicit shrinkability: overflow:hidden already zeroes the flex
+          // minimum (the automatic min-size only applies to visible
+          // overflow), but state it outright so a future overflow change
+          // can't silently let a long nowrap title push the trailing
+          // toolbar cluster off-viewport on narrow screens.
+          minWidth: 0,
+          opacity: p.large === "1" ? Number(p.inlineAlpha || 1) : 1,
+        },
+      }, n.pill
+        ? h(Segmented, {
+            options: n.pill.options, selected: n.pill.selected, dark, compact: true,
+            onSelect: n.pill.onSelect,
+          })
+        : principal < 0 && p.subtitle
+        ? h("div", { style: { display: "flex", flexDirection: "column", lineHeight: 1.15 } },
+            h("span", null, p.title || ""),
+            h("span", { style: { fontSize: 12, fontWeight: 400, opacity: 0.6 } }, p.subtitle))
+        : principal >= 0
+        ? trailingItem(principal, {
+            fontWeight: 600, fontSize: 15, padding: "4px 12px",
+            borderRadius: 14, background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
+            color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+          })
+        : (p.title || "")),
+      h("div", { style: { ...side, justifyContent: "flex-end" } },
+        trailing.map((title, i) => i === principal ? null : trailingItem(i))));
+  }
+
+  function tabBar(n) {
+    const p = n.params || {};
+    const count = Number(p.count || 0);
+    const selected = Number(p.selected || 0);
+    const tabs = [];
+    for (let i = 0; i < count; i++) {
+      const active = i === selected;
+      tabs.push(h("button", {
+        key: i,
+        onClick: () => sendEvent(n.edit, String(i)),
+        style: {
+          flex: 1, border: "none", background: "none", cursor: "pointer",
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+          padding: "7px 0 5px", fontSize: 11, opacity: active ? 1 : 0.45,
+          color: active ? "var(--uui-tint, #0a84ff)" : "rgba(0,0,0,0.55)",
+        },
+      },
+        p["glyph" + i]
+          ? h("span", { style: { fontSize: 22, lineHeight: "24px" } }, p["glyph" + i])
+          : p["icon" + i]
+            ? h("img", { src: `${assetBase}${p["icon" + i]}.png`, style: { width: 24, height: 24, objectFit: "contain" } })
+            : null,
+        h("span", null, p["label" + i] || "")));
+    }
+    return h("div", {
+      style: {
+        display: "flex", width: "100%", flex: "none",
+        background: "rgba(249,249,249,0.94)", borderTop: "1px solid rgba(0,0,0,0.12)",
+      },
+    }, tabs);
+  }
+
+  // Semantic navigation (`navstack`) → the web idiom: a compact header bar
+  // (back, leading items, centered title, trailing items) shown when it has
+  // content, a large-title heading + search row unless the title mode is
+  // inline, then the content column. Events ride the node's host-event
+  // channel: "back", "leading:<i>", "trailingItem:<i>", "search:<text>".
+  // `.tabBarOnly`: the tabs pill is handed to the selected tab's own
+  // navigation bar (one bar row: leading cluster, centered pill, trailing
+  // cluster — the macOS window-toolbar shape) when that tab's root is a
+  // NavigationStack; otherwise the TabView draws its own strip.
+  let pendingTabPill = null;
+
+  function navStack(n, key, kids) {
+    const p = n.params || {};
+    let pill = null;
+    // The tab root is wrapped in a content box: navstack sits 1–3 levels
+    // below the tabs node.
+    if (pendingTabPill && !pendingTabPill.consumed && renderDepth - pendingTabPill.depth <= 2) {
+      pendingTabPill.consumed = true;
+      pill = pendingTabPill;
+    }
+    const dark = p.dark === "1";
+    const depth = Number(p.depth || 0);
+    const inline = p.displayMode === "inline";
+    const leading = p.leading ? p.leading.split("\n") : [];
+    const trailing = p.trailingItems ? p.trailingItems.split("\n") : [];
+    // At its root inside a compact split view, this bar carries the split's
+    // Back (to the previous column) — the phone shape of a split detail.
+    const splitBack = depth === 0 && currentSplitBack ? currentSplitBack.back : null;
+    const showBar = depth > 0 || leading.length > 0 || trailing.length > 0 || inline || !!pill || !!splitBack;
+    const rows = [];
+    if (showBar) {
+      rows.push(h(R.Fragment, { key: "bar" }, navBar({
+        edit: n.edit,
+        pill,
+        onBack: splitBack,
+        params: {
+          title: inline || !p.title ? (p.title || "") : "",
+          subtitle: inline ? (p.subtitle || "") : "",
+          back: depth > 0 || splitBack ? "1" : "0",
+          dark: p.dark,
+          leading: p.leading,
+          trailingItems: p.trailingItems,
+          principal: p.principal,
+          segments: p.segments,
+          segmentSelected: p.segmentSelected,
+          prominent: p.prominent,
+        },
+      })));
+    }
+    if (!inline && p.title) {
+      rows.push(h("div", {
+        key: "title",
+        style: {
+          fontSize: 34, fontWeight: 700, padding: p.subtitle ? "6px 16px 0" : "6px 16px 8px",
+          color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+        },
+      }, p.title));
+      // `.navigationSubtitle`: small secondary line under the large title.
+      if (p.subtitle) {
+        rows.push(h("div", {
+          key: "subtitle",
+          style: {
+            fontSize: 15, padding: "0 16px 8px",
+            color: dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)",
+            fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+          },
+        }, p.subtitle));
+      }
+    }
+    if (p.searchPrompt != null && p.searchPrompt !== "") {
+      rows.push(h("input", {
+        key: "search",
+        type: "search",
+        defaultValue: p.searchValue || "",
+        placeholder: p.searchPrompt,
+        onInput: (e) => sendEvent(n.edit, `search:${e.target.value}`),
+        style: {
+          margin: "0 16px 8px", padding: "7px 10px", fontSize: 15,
+          border: "1px solid rgba(120,120,128,0.35)", borderRadius: 8,
+          outline: "none", background: "rgba(120,120,128,0.08)",
+          color: "inherit",
+        },
+      }));
+    }
+    rows.push(h("div", {
+      key: `content:${depth}`, // remount per level: a push swaps the screen
+      style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch" },
+    }, kids));
+    return h("div", {
+      key,
+      "data-navstack": "1",
+      style: {
+        display: "flex", flexDirection: "column", flex: 1,
+        minHeight: 0, minWidth: 0, alignSelf: "stretch", width: "100%",
+        color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+      },
+    }, rows);
+  }
+
+  // Semantic `navsplit` → three columns (240 | 340 | remainder) with
+  // hairline dividers; the sidebar carries the bar tint, like a desktop
+  // split view. On a COMPACT container it collapses to a single-pane drill
+  // (like SwiftUI's own split view on an iPhone): a tap inside the visible
+  // column advances to the next pane, the back row retreats.
+  // `.tabViewStyle(.sidebarAdaptable)` (the modern Tab/TabSection form):
+  // macOS semantics on the web — ALWAYS a sidebar (TabSections as groups,
+  // like the navsplit sidebar column) regardless of width, with the
+  // standard collapse/expand toggle at the top leading edge; collapsed,
+  // the panes take the full width and the floating toggle brings it back.
+  // The collapsed state persists per browser (localStorage). Labels carry
+  // SF-symbol text glyphs (`glyph<i>`) mapped by the guest.
+  function SidebarTabs({ n, kids }) {
+    const p = n.params || {};
+    const dark = p.dark === "1";
+    const count = Number(p.count || 0);
+    const selected = Number(p.selected || 0);
+    const [collapsed, setCollapsed] = R.useState(() => {
+      try { return localStorage.getItem("uui-sidebar-collapsed") === "1"; }
+      catch (_) { return false; }
+    });
+    const toggle = () => setCollapsed((value) => {
+      try { localStorage.setItem("uui-sidebar-collapsed", value ? "0" : "1"); }
+      catch (_) {}
+      return !value;
+    });
+    // The macOS sidebar.leading control, inline SVG (crisper than a glyph).
+    const toggleButton = (extra) => h("button", {
+      key: "toggle",
+      title: collapsed ? "Show Sidebar" : "Hide Sidebar",
+      onClick: toggle,
+      style: {
+        border: "none", background: "none", cursor: "pointer", padding: 6,
+        borderRadius: 6, display: "flex", alignItems: "center",
+        color: dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)",
+        ...extra,
+      },
+    }, h("svg", { width: 18, height: 16, viewBox: "0 0 18 16" },
+      h("rect", { x: 0.75, y: 0.75, width: 16.5, height: 14.5, rx: 3, fill: "none", stroke: "currentColor", strokeWidth: 1.5 }),
+      h("line", { x1: 6.5, y1: 1, x2: 6.5, y2: 15, stroke: "currentColor", strokeWidth: 1.5 }),
+      h("rect", { x: 2, y: 3, width: 3, height: 1.6, rx: 0.8, fill: "currentColor" }),
+      h("rect", { x: 2, y: 6, width: 3, height: 1.6, rx: 0.8, fill: "currentColor" })));
+    const content = h("div", {
+      key: "content",
+      style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, alignSelf: "stretch" },
+    }, kids);
+    if (collapsed) {
+      return h("div", {
+        style: { position: "relative", display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+      },
+        content,
+        h("div", { key: "float", style: { position: "absolute", top: 8, left: 8, zIndex: 20 } },
+          toggleButton({ background: dark ? "rgba(30,30,32,0.85)" : "rgba(247,247,247,0.9)", boxShadow: "0 1px 4px rgba(0,0,0,0.25)" })));
+    }
+    // `.tabViewCustomization`: root items (ungrouped tabs, sections) and
+    // the tabs inside a section drag-reorder; the new arrangement goes to
+    // the guest as "reorder:<raw>" (guest applies it and re-emits ordered
+    // entries) and, when the binding is an @AppStorage, persists in
+    // localStorage under the storage key so it survives reloads.
+    const custom = p.custom === "1";
+    const storageKey = custom ? (p.storageKey || "") : "";
+    const [dragging, setDragging] = R.useState(null);
+    const [over, setOver] = R.useState(null);
+    // Root items in the guest's (already arranged) order.
+    const roots = [];
+    for (let i = 0; i < count; i++) {
+      const section = p["section" + i] || "";
+      const sid = p["sid" + i] || "";
+      const key = sid ? "s:" + sid : (section ? "t:" + section : "tab:" + i);
+      const last = roots[roots.length - 1];
+      if (last && last.key === key && (sid || section)) {
+        last.tabs.push(i);
+      } else {
+        roots.push({
+          key, section, id: (sid || section) ? sid : (p["cid" + i] || ""),
+          isSection: !!(sid || section), tabs: [i],
+          pinned: (sid || section) ? p["sfixed" + i] === "1" : p["fixed" + i] === "1",
+        });
+      }
+    }
+    const serialize = (rootIds, sectionOrders) => {
+      const parts = [];
+      if (rootIds.length) parts.push(":" + rootIds.join(","));
+      for (const id of Object.keys(sectionOrders).sort()) {
+        if (sectionOrders[id].length) parts.push(id + ":" + sectionOrders[id].join(","));
+      }
+      return parts.join(";");
+    };
+    const currentArrangement = () => {
+      const sectionOrders = {};
+      for (const r of roots) {
+        if (r.isSection && r.id) sectionOrders[r.id] = r.tabs.map((i) => p["cid" + i] || "").filter(Boolean);
+      }
+      return { rootIds: roots.map((r) => r.id).filter(Boolean), sectionOrders };
+    };
+    const commit = (raw) => {
+      if (storageKey) { try { localStorage.setItem(storageKey, raw); } catch (_) {} }
+      sendEvent(n.edit, "reorder:" + raw);
+    };
+    R.useEffect(() => {
+      if (!storageKey) return;
+      let stored = null;
+      try { stored = localStorage.getItem(storageKey); } catch (_) {}
+      if (stored != null && stored !== (p.arrangement || "")) {
+        // First mount: a persisted arrangement wins over the guest default.
+        if (!SidebarTabs.synced.has(storageKey)) {
+          SidebarTabs.synced.add(storageKey);
+          sendEvent(n.edit, "reorder:" + stored);
+          return;
+        }
+      }
+      SidebarTabs.synced.add(storageKey);
+      try { localStorage.setItem(storageKey, p.arrangement || ""); } catch (_) {}
+    }, [storageKey, p.arrangement]);
+    const moveWithin = (ids, fromId, toId) => {
+      const list = ids.filter((id) => id !== fromId);
+      const at = list.indexOf(toId);
+      const before = ids.indexOf(fromId) > ids.indexOf(toId);
+      list.splice(before ? at : at + 1, 0, fromId);
+      return list;
+    };
+    const dropOn = (target) => {
+      if (!dragging || dragging.kind !== target.kind || dragging.id === target.id) return;
+      if (dragging.kind === "tab" && dragging.container !== target.container) return;
+      const { rootIds, sectionOrders } = currentArrangement();
+      if (dragging.kind === "root") {
+        commit(serialize(moveWithin(rootIds, dragging.id, target.id), sectionOrders));
+      } else {
+        sectionOrders[dragging.container] = moveWithin(sectionOrders[dragging.container] || [], dragging.id, target.id);
+        commit(serialize(rootIds, sectionOrders));
+      }
+    };
+    const dragProps = (item) => {
+      if (!custom || !item.id || item.pinned) return {};
+      const token = item.kind + "/" + item.container + "/" + item.id;
+      return {
+        draggable: true,
+        onDragStart: (e) => {
+          try { e.dataTransfer.setData("text/plain", token); e.dataTransfer.effectAllowed = "move"; } catch (_) {}
+          setDragging(item);
+        },
+        onDragEnd: () => { setDragging(null); setOver(null); },
+        onDragOver: (e) => {
+          if (!dragging || dragging.kind !== item.kind || (item.kind === "tab" && dragging.container !== item.container)) return;
+          e.preventDefault();
+          if (over !== token) setOver(token);
+        },
+        onDragLeave: () => { if (over === token) setOver(null); },
+        onDrop: (e) => { e.preventDefault(); dropOn(item); setDragging(null); setOver(null); },
+      };
+    };
+    const overStyle = (item) => {
+      const token = item.kind + "/" + item.container + "/" + item.id;
+      return over === token && dragging && dragging.id !== item.id
+        ? { boxShadow: "inset 0 2px 0 #0a84ff" } : {};
+    };
+    const rows = [];
+    const tabRow = (i, item) => {
+      const active = i === selected;
+      const dp = dragProps(item);
+      return h("button", {
+        key: i,
+        onClick: () => sendEvent(n.edit, String(i)),
+        ...dp,
+        "data-tab": p["label" + i] || "",
+        style: {
+          display: "flex", alignItems: "center", gap: 9, width: "calc(100% - 12px)",
+          margin: "1px 6px", padding: "7px 9px", border: "none",
+          cursor: dp.draggable ? "grab" : "pointer",
+          borderRadius: 7, textAlign: "left", fontSize: 13.5,
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+          background: active ? (dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.08)") : "none",
+          color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+          opacity: dragging && dragging.kind === item.kind && dragging.id === item.id ? 0.4 : 1,
+          ...overStyle(item),
+        },
+      },
+        p["glyph" + i]
+          ? h("span", { style: { fontSize: 15, width: 22, textAlign: "center", color: "var(--uui-tint, #0a84ff)" } }, p["glyph" + i])
+          : null,
+        h("span", null, p["label" + i] || ""));
+    };
+    for (const root of roots) {
+      if (!root.isSection) {
+        rows.push(tabRow(root.tabs[0], { kind: "root", container: "", id: root.id, pinned: root.pinned }));
+        continue;
+      }
+      const item = { kind: "root", container: "", id: root.id, pinned: root.pinned };
+      const dp = dragProps(item);
+      rows.push(h("div", {
+        key: "s" + root.tabs[0],
+        ...dp,
+        "data-section": root.section,
+        style: {
+          padding: "14px 14px 4px", fontSize: 11, fontWeight: 600,
+          textTransform: "uppercase", letterSpacing: "0.4px",
+          cursor: dp.draggable ? "grab" : "default",
+          color: dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)",
+          opacity: dragging && dragging.kind === "root" && dragging.id === root.id ? 0.4 : 1,
+          ...overStyle(item),
+        },
+      }, root.section));
+      for (const i of root.tabs) {
+        rows.push(tabRow(i, {
+          kind: "tab", container: root.id, id: p["cid" + i] || "",
+          pinned: p["fixed" + i] === "1",
+        }));
+      }
+    }
+    const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
+    return h("div", {
+      style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+    },
+      h("div", {
+        key: "sidebar",
+        style: {
+          width: 220, flex: "none", display: "flex", flexDirection: "column",
+          minHeight: 0, alignSelf: "stretch", background: sidebarBg,
+          overflowY: "auto",
+        },
+      },
+        h("div", { key: "head", style: { display: "flex", padding: "6px 6px 2px" } }, toggleButton()),
+        rows),
+      h("div", {
+        key: "d0",
+        style: { width: 1, flex: "none", alignSelf: "stretch", background: dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)" },
+      }),
+      content);
+  }
+
+  SidebarTabs.synced = new Set();
+
+  // The compact split's "go back" for the visible pane's own navigation bar
+  // (set while the pane renders; navStack shows it as the bar's Back when the
+  // pane's stack is at its root).
+  let currentSplitBack = null;
+
+  function NavSplit({ dark, kids, nodes, preferredPane, compactTick, edit, sidebarWidth, contentWidth, visibility }) {
+    // `preferredCompactColumn`: the compact presentation starts on the
+    // guest's preferred column and reports pane changes back so the app's
+    // binding tracks ("compact:<column>" on the navsplit's event channel).
+    // Two-column splits (sidebar + detail, no content child) have one fewer
+    // pane; the preferred column clamps into range.
+    const paneCount = kids.length;
+    const paneNames = paneCount === 2 ? ["sidebar", "detail"] : ["sidebar", "content", "detail"];
+    const lastPane = paneCount - 1;
+    const [pane, setPaneState] = R.useState(Math.min(preferredPane ?? 0, lastPane));
+    const setPane = (next) => {
+      setPaneState(next);
+      if (edit) sendEvent(edit, "compact:" + paneNames[next]);
+    };
+    // The guest asks to advance when a column's List selection changes (a
+    // row tap or a programmatic selection) — SwiftUI's phone behavior.
+    const lastTick = R.useRef(compactTick);
+    R.useEffect(() => {
+      if (compactTick !== lastTick.current) {
+        lastTick.current = compactTick;
+        if (preferredPane != null) setPaneState(Math.min(preferredPane, lastPane));
+      }
+    }, [compactTick]);
+    const compact = window.innerWidth < 700;
+    const divider = (k) => h("div", {
+      key: k,
+      style: { width: 1, flex: "none", alignSelf: "stretch", background: dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)" },
+    });
+    const column = (k, width, kid, background, extra) => h("div", {
+      key: k,
+      ...extra,
+      style: {
+        width, flex: width == null ? 1 : "none",
+        minWidth: width == null ? 0 : undefined,
+        display: "flex", flexDirection: "column", minHeight: 0,
+        alignSelf: "stretch", background,
+      },
+    }, kid);
+    const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
+    if (!compact) {
+      // `columnVisibility` at regular width: `.detailOnly` shows the detail
+      // alone, `.doubleColumn` drops a three-column split's sidebar; `.all`
+      // / automatic show every column (there is no user collapse control on
+      // this host, so `.all` pins the sidebar by construction).
+      const detailOnly = visibility === "detailOnly";
+      const hideSidebar = detailOnly || (visibility === "doubleColumn" && paneCount === 3);
+      const row = { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" };
+      if (paneCount === 2) {
+        return h("div", { style: row },
+          hideSidebar ? null : column("sidebar", sidebarWidth, kids[0], sidebarBg),
+          hideSidebar ? null : divider("d0"),
+          column("detail", null, kids[1]));
+      }
+      return h("div", { style: row },
+        hideSidebar ? null : column("sidebar", sidebarWidth, kids[0], sidebarBg),
+        hideSidebar ? null : divider("d0"),
+        detailOnly ? null : column("content", contentWidth, kids[1]),
+        detailOnly ? null : divider("d1"),
+        column("detail", null, kids[2]));
+    }
+    // Compact: pane 0 = sidebar, 1 = content, 2 = detail. The guest advances
+    // the pane on selection changes; Back retreats — drawn in the pane's
+    // own navigation bar when it has one (a `SplitBackBar` row otherwise).
+    return h(CompactPane, { key: `pane${pane}`, pane, node: nodes[pane], background: pane === 0 ? sidebarBg : undefined,
+      onBack: pane > 0 ? () => setPane(pane - 1) : null, dark });
+  }
+
+  function CompactPane({ pane, node, background, onBack, dark }) {
+    // Render the pane's node HERE (not the eagerly rendered kid) so its
+    // navstack sees the split's back handler while it builds its bar.
+    const previous = currentSplitBack;
+    currentSplitBack = onBack ? { back: onBack } : null;
+    let kid;
+    try {
+      kid = render(node, `pane${pane}:${node.k}${node.view || ""}`, "v");
+    } finally {
+      currentSplitBack = previous;
+    }
+    const rendered = h("div", {
+      style: {
+        flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0,
+        alignSelf: "stretch", width: "100%", background,
+      },
+    }, kid);
+    // React renders `kid` lazily, so whether a navstack claimed the back
+    // handler is only known after this render; the fallback row shows when
+    // the pane's tree has no navstack root (see navStack).
+    const rows = [];
+    if (onBack && !paneHasNavStack(kid)) {
+      rows.push(h("div", {
+        key: "back",
+        onClick: onBack,
+        style: {
+          padding: "10px 14px", color: "var(--uui-tint, #0a84ff)", cursor: "pointer",
+          fontSize: 16, flex: "none",
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+        },
+      }, "‹ Back"));
+    }
+    rows.push(h(R.Fragment, { key: "pane" }, rendered));
+    return h("div", {
+      style: { display: "flex", flexDirection: "column", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+    }, rows);
+  }
+
+  // Whether a rendered pane's element tree starts (within a few wrapper
+  // levels) with a navstack — its bar can host the split's Back.
+  function paneHasNavStack(element) {
+    let node = element;
+    for (let depth = 0; node && depth < 6; depth++) {
+      const props = node.props || {};
+      if (props["data-navstack"]) return true;
+      const children = props.children;
+      if (Array.isArray(children)) node = children.find((c) => c && c.props);
+      else node = children && children.props ? children : null;
+    }
+    return false;
+  }
+
+  function navSplit(n, key, kids) {
+    const p = n.params || {};
+    const preferred = p.columns === "2"
+      ? { sidebar: 0, content: 0, detail: 1 }[p.compact]
+      : { sidebar: 0, content: 1, detail: 2 }[p.compact];
+    return h(NavSplit, {
+      key, dark: p.dark === "1", kids, nodes: n.ch || [],
+      preferredPane: preferred, compactTick: p.compactTick, edit: n.edit, visibility: p.visibility,
+      // `.navigationSplitViewColumnWidth` hints (sidebarWidth/contentWidth).
+      sidebarWidth: Number(p.sidebarWidth) || 240,
+      contentWidth: Number(p.contentWidth) || 340,
+    });
+  }
+
+  // Pointer-drag state for the `map` host view (one pointer pans at a time).
+  const mapDrag = { active: false, x: 0, y: 0 };
+
+  // A scroll pinned to its bottom edge (`.defaultScrollAnchor(.bottom)`):
+  // GeometryReader measurement: observe the wrapper div's border-box and
+  // send each size the host lays out to the guest (deduped per element; a
+  // same-size re-report after a remount is harmless — the guest's rebuild is
+  // identical, the patch is empty, and the observer quiesces). Sizes are CSS
+  // pixels — the same logical points the guest's canvas size uses.
+  function GeometryBox({ divProps, geoId, children }) {
+    const ref = R.useRef(null);
+    const lastSent = R.useRef("");
+    R.useLayoutEffect(() => {
+      const el = ref.current;
+      if (!el) return undefined;
+      const report = () => {
+        const w = Math.round(el.clientWidth);
+        const h2 = Math.round(el.clientHeight);
+        if (w <= 0 || h2 <= 0) return;
+        const value = `${w}x${h2}`;
+        if (lastSent.current === value) return;
+        lastSent.current = value;
+        sendEvent(geoId, value);
+      };
+      report();
+      const observer = new ResizeObserver(report);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, [geoId]);
+    return h("div", { ...divProps, ref }, children);
+  }
+
+  // starts at the newest content and follows growth while the user is at the
+  // bottom; scrolling up unpins until they return (within a small slop).
+  function BottomAnchoredScroll({ divProps, children }) {
+    const ref = R.useRef(null);
+    const pinned = R.useRef(true);
+    R.useLayoutEffect(() => {
+      const el = ref.current;
+      if (el && pinned.current) el.scrollTop = el.scrollHeight;
+    });
+    return h("div", {
+      ...divProps,
+      ref,
+      onScroll: (e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+      },
+    }, children);
+  }
+
+  function hostView(n, props, kids) {
+    const p = n.params || {};
+    switch (n.view) {
+      case "navbar": return navBar(n);
+      case "tabbar": return tabBar(n);
+      case "search":
+        return h(TextInput, { n: { ...n, searchStyle: true, placeholder: p.prompt || "" } });
+      case "toggle":
+        return h("input", {
+          type: "checkbox",
+          className: "uui-switch",
+          checked: n.v === "1",
+          onChange: (e) => sendEvent(n.edit, e.target.checked ? "1" : "0"),
+        });
+      case "picker":
+      case "menu": {
+        if (n.view === "picker" && p.style === "segmented") {
+          return h(Segmented, {
+            key: props.key, options: n.options || [], selected: Number(n.v) || 0,
+            dark: document.documentElement.dataset.theme === "dark"
+              || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches),
+            onSelect: (i) => sendEvent(n.edit, String(i)),
+          });
+        }
+        props.value = n.view === "picker" ? Number(n.v) || 0 : 0;
+        props.onChange = (e) => sendEvent(n.edit, String(e.target.selectedIndex));
+        props.style = { ...props.style, fontSize: 15, padding: "4px 8px" };
+        return h("select", props,
+          (n.options || []).map((label, i) => h("option", { key: i, value: i }, label)));
+      }
+      case "datepicker":
+        props.type = "date";
+        props.value = n.v || "";
+        props.onChange = (e) => sendEvent(n.edit, e.target.value);
+        return h("input", props);
+      case "image":
+        props.src = /^(https?:|data:|blob:)/.test(n.v) ? n.v : assetBase + n.v;
+        props.style = { ...props.style, maxWidth: "100%", objectFit: "contain" };
+        return h("img", props);
+      case "webview":
+        props.src = n.v;
+        props.style = { ...props.style, border: "none", width: "100%", height: "100%", flex: 1, alignSelf: "stretch" };
+        return h("iframe", props);
+      case "map": {
+        // Real SwiftMap tiles: the wasm module draws into the page canvas,
+        // which the boot layer parks inside this element (mapSurface). This
+        // element owns the gestures, translated to the same camera-binding
+        // commands the self-drawing renderers send ("pan:dx,dy" /
+        // "zoom:dy,ax,ay,w,h" — MapSupport.applyGesture).
+        props.style = {
+          ...props.style, width: "100%", height: "100%", flex: 1,
+          alignSelf: "stretch", position: "relative", overflow: "hidden",
+          touchAction: "none",
+        };
+        if (mapSurface) props.ref = (el) => mapSurface.attach(el, n);
+        props.onPointerDown = (e) => {
+          mapDrag.active = true;
+          mapDrag.x = e.clientX;
+          mapDrag.y = e.clientY;
+          e.currentTarget.setPointerCapture(e.pointerId);
+        };
+        props.onPointerMove = (e) => {
+          if (!mapDrag.active) return;
+          sendEvent(n.edit, `pan:${e.clientX - mapDrag.x},${e.clientY - mapDrag.y}`);
+          mapDrag.x = e.clientX;
+          mapDrag.y = e.clientY;
+        };
+        props.onPointerUp = () => { mapDrag.active = false; };
+        props.onWheel = (e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          sendEvent(n.edit,
+            `zoom:${e.deltaY},${e.clientX - r.left},${e.clientY - r.top},${r.width},${r.height}`);
+        };
+        return h("div", props);
+      }
+      case "video":
+        props.src = n.v;
+        props.controls = true;
+        props.playsInline = true;
+        props.style = { ...props.style, width: "100%", background: "#000", objectFit: "contain" };
+        return h("video", props);
+      default:
+        if (n.view && n.view.startsWith("html:")) {
+          props.type = n.view.slice(5);
+          props.value = n.v || "";
+          props.onChange = (e) => sendEvent(n.edit, e.target.value);
+          return h("input", props);
+        }
+        return h("div", props, kids);
+    }
+  }
+
+  function presentation(n, kids) {
+    const isAlert = n.style === "alert";
+    // Panel chrome colors ride the node, scheme-resolved by the serializer
+    // (Color.secondaryBackground / Color.primary) — never hardcode a light
+    // palette here, or dark-scheme presented content renders white-on-white.
+    const panelBg = rgba(n.bg) || "#fff";
+    const headColor = n.color ? rgba(n.color) : undefined;
+    const messageColor = n.color
+      ? rgba([n.color[0], n.color[1], n.color[2], n.color[3] * 0.65])
+      : "rgba(0,0,0,0.6)";
+    if (isAlert) {
+      const head = [];
+      if (n.title) {
+        head.push(h("div", {
+          key: "t",
+          style: { fontWeight: 600, fontSize: 17, textAlign: "center", color: headColor },
+        }, n.title));
+      }
+      if (n.message) {
+        head.push(h("div", {
+          key: "m",
+          style: { fontSize: 14, color: messageColor, textAlign: "center" },
+        }, n.message));
+      }
+      kids = [h("div", {
+        key: "head",
+        style: {
+          display: "flex", flexDirection: "column", gap: 8,
+          marginBottom: kids.length ? 14 : 0,
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+        },
+      }, head), ...kids];
+    }
+    // Sheets: Apple's shapes. Regular width → a centered modal card;
+    // compact → a bottom sheet. Greedy content (a NavigationStack / List /
+    // Form — anything that grows) gets an EXPLICIT height so it lays out
+    // and scrolls inside the panel: the scroll node is `flex: 1 1 0`, which
+    // collapses to nothing inside an auto-height panel (the sheet then sat
+    // mostly below the fold). Content-sized sheets (a few buttons) stay auto.
+    const compact = window.innerWidth < 700;
+    const child = (n.ch || [])[0] || {};
+    const greedy = !!child.growH || !!child.expandH;
+    const sheetStyle = compact
+      ? {
+          background: panelBg, borderTopLeftRadius: 14, borderTopRightRadius: 14,
+          width: "100%", boxSizing: "border-box",
+          height: greedy ? "calc(100% - 40px)" : "auto", maxHeight: "calc(100% - 40px)",
+          overflowY: "auto", padding: 16, boxShadow: "0 -8px 32px rgba(0,0,0,0.25)",
+          display: "flex", flexDirection: "column", alignItems: "stretch",
+        }
+      : {
+          background: panelBg, borderRadius: 14, boxSizing: "border-box",
+          width: greedy ? "min(560px, calc(100% - 64px))" : "auto",
+          minWidth: 280, maxWidth: "min(640px, calc(100% - 64px))",
+          height: greedy ? "min(85%, 760px)" : "auto", maxHeight: "calc(100% - 64px)",
+          overflowY: "auto", padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+          display: "flex", flexDirection: "column", alignItems: "stretch",
+        };
+    return h("div", {
+      style: {
+        position: "fixed", inset: 0, display: "flex", zIndex: 20,
+        alignItems: isAlert || !compact ? "center" : "flex-end", justifyContent: "center",
+        background: "rgba(0,0,0,0.35)",
+      },
+      onClick: () => sendEvent(n.dismiss, ""),
+    }, h("div", {
+      onClick: (e) => e.stopPropagation(),
+      style: isAlert
+        ? { background: panelBg, borderRadius: 14, minWidth: 280, maxWidth: 420, padding: 20, boxShadow: "0 12px 40px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center" }
+        : sheetStyle,
+    }, kids));
+  }
+
+  let renderDepth = 0;
+
+  function render(n, key, parentAxis) {
+    renderDepth += 1;
+    try {
+      return renderNode(n, key, parentAxis);
+    } finally {
+      renderDepth -= 1;
+    }
+  }
+
+  function renderNode(n, key, parentAxis) {
+    if (n.k === "hostView" && (n.view === "navbar" || n.view === "tabbar")) {
+      // Bars ignore box decorations; they are chrome rows.
+      return h(R.Fragment, { key }, hostView(n, {}, []));
+    }
+    if (key === "root") {
+      // The root view keeps its own size, centered in the canvas — the way
+      // SwiftUI (and the native renderers) place a content-sized root — so
+      // `.background` on a root VStack wraps the content instead of
+      // painting the whole screen. Greedy roots (navigation, lists,
+      // spacers) still fill the canvas via the ZStack-layer rules.
+      return h("div", {
+        key,
+        style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0, minWidth: 0 },
+      }, render(n, "root-node", "z"));
+    }
+    const props = interactive(n, { key, style: baseStyle(n) });
+    const s = props.style;
+    // Greedy nodes fill their parent: grow along the parent's main axis,
+    // stretch across it (SwiftUI greediness, computed by the serializer).
+    if ((parentAxis === "v" && n.growH) || (parentAxis === "h" && n.growW)) {
+      s.flexGrow = 1;
+      s.minHeight = 0;
+      s.minWidth = 0;
+    }
+    if ((parentAxis === "v" && n.growW) || (parentAxis === "h" && n.growH)) {
+      s.alignSelf = "stretch";
+    }
+    // In a ZStack layer, greedy nodes fill the stack (e.g. a shape backdrop).
+    if (parentAxis === "z") {
+      if (n.growW) s.width = "100%";
+      if (n.growH) s.height = "100%";
+    }
+    // `.frame(maxWidth/Height: .infinity)` along the parent's main axis means
+    // "fill the remaining space", which in CSS is flex-grow — NOT a 100%
+    // preferred size, which would overflow the row and shrink the fixed
+    // siblings. Across the main axis it is a plain 100%.
+    if (n.expandW) {
+      if (parentAxis === "h") {
+        s.flexGrow = 1;
+        s.flexBasis = 0;
+        s.minWidth = 0;
+      } else {
+        s.width = "100%";
+      }
+    }
+    if (n.expandH) {
+      if (parentAxis === "v") {
+        s.flexGrow = 1;
+        s.flexBasis = 0;
+        s.minHeight = 0;
+      } else {
+        s.height = "100%";
+      }
+    }
+    // SwiftUI fixed frames don't compress; keep flexbox from shrinking them
+    // along the parent's main axis.
+    if (parentAxis === "h" && n.width != null) s.flexShrink = 0;
+    if (parentAxis === "v" && n.height != null) s.flexShrink = 0;
+    const childAxis = n.k === "stack" ? n.axis : "v";
+    // Key children by kind (and stack axis / host-view kind), not bare index:
+    // when navigation swaps a whole subtree, a same-position node of a
+    // different kind must REMOUNT, not be incrementally patched — React's
+    // style diffing across such transitions has left stale inline styles
+    // (e.g. a dropped flex-grow centering a re-visited pane).
+    let tabPill = null;
+    if (n.k === "hostView" && n.view === "tabs" && (n.params || {}).style === "tabBarOnly") {
+      const tp = n.params;
+      const labels = [];
+      for (let i = 0; i < Number(tp.count || 0); i++) labels.push(tp["label" + i] || "");
+      tabPill = {
+        options: labels, selected: Number(tp.selected || 0), consumed: false,
+        depth: renderDepth + 1, // the selected tab's root, rendered next
+        onSelect: (i) => sendEvent(n.edit, String(i)),
+      };
+      pendingTabPill = tabPill;
+    }
+    let kids = (n.ch || []).map((c, i) =>
+      render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis));
+    if (tabPill) pendingTabPill = null;
+
+    switch (n.k) {
+      case "stack": {
+        if (n.axis === "z") {
+          // Layers stretch over the whole stack; each aligns its child by
+          // the ZStack's alignment (SwiftUI's ZStack(alignment:)).
+          const place = `${alignCSS[n.alignV] || "center"} ${alignCSS[n.alignH] || "center"}`;
+          s.display = "grid";
+          s.placeItems = "stretch";
+          kids = kids.map((kid, i) => {
+            const c = (n.ch || [])[i] || {};
+            return h("div", {
+              key: i,
+              style: {
+                gridArea: "1 / 1", display: "grid", placeItems: place,
+                minWidth: 0, minHeight: 0,
+                width: c.growW ? "100%" : undefined,
+                height: c.growH ? "100%" : undefined,
+                // Each layer stacks above the previous even when an earlier
+                // layer contains positioned content (the map's canvas).
+                position: "relative", zIndex: i,
+              },
+            }, kid);
+          });
+        } else {
+          s.display = "flex";
+          s.flexDirection = n.axis === "h" ? "row" : "column";
+          s.alignItems = n.axis === "h"
+            ? (alignCSS[n.alignV] || "center")
+            : (alignCSS[n.alignH] || "center");
+          s.minHeight = 0;
+          s.minWidth = 0;
+          s.gap = n.spacing != null ? n.spacing : 8;
+        }
+        return h("div", props, kids);
+      }
+      case "text": {
+        s.fontSize = n.size;
+        s.fontWeight = n.weight;
+        s.color = rgba(n.color);
+        s.whiteSpace = "pre-wrap";
+        s.fontFamily = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+        if (n.lines) {
+          s.display = "-webkit-box";
+          s.WebkitLineClamp = n.lines;
+          // `.truncationMode`: CSS only truncates at the end; head/middle fall
+          // back to it (the native hosts do the real thing).
+          if ((n.params || {}).truncation) { s.textOverflow = "ellipsis"; s.overflow = "hidden"; }
+          if ((n.params || {}).lineSpacing) s.lineHeight = `calc(1.25em + ${Number((n.params || {}).lineSpacing)}px)`;
+          s.WebkitBoxOrient = "vertical";
+          s.overflow = "hidden";
+        }
+        return h("span", props, n.v);
+      }
+      case "spacer":
+        s.flexGrow = 1;
+        if (n.min != null) { s.minWidth = n.min; s.minHeight = n.min; }
+        return h("div", props);
+      case "divider":
+        s.alignSelf = "stretch";
+        s.flex = "0 0 1px";
+        s.background = "rgba(120,120,128,0.3)";
+        return h("div", props);
+      case "scroll":
+        s.flex = "1 1 0";
+        s.alignSelf = "stretch";
+        s.minHeight = 0;
+        s.minWidth = 0;
+        s[n.axis === "h" ? "overflowX" : "overflowY"] = "auto";
+        // `.scrollDismissesKeyboard(.immediately / .interactively)`: a scroll
+        // (or a touch drag) blurs the focused field, closing the soft keyboard.
+        if ((n.params || {}).dismissKeyboard && (n.params || {}).dismissKeyboard !== "never") {
+          const dismiss = () => {
+            const active = document.activeElement;
+            if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) active.blur();
+          };
+          props.onScroll = dismiss;
+          props.onTouchMove = dismiss;
+        }
+        // `.defaultScrollAnchor(.bottom)` (a chat log): start at the bottom
+        // and stay pinned there as content grows, until the user scrolls up.
+        if ((n.params || {}).anchor === "bottom") {
+          return h(BottomAnchoredScroll, { key, divProps: props }, kids);
+        }
+        return h("div", props, kids);
+      case "image": {
+        const src = /^(https?:|data:|blob:)/.test(n.src) ? n.src : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
+        props.src = src;
+        s.objectFit = n.fit ? "contain" : "cover";
+        // scaledToFill: fill the frame box and crop (matching real SwiftUI
+        // and the self-drawing renderers) — a bare <img> would render at its
+        // natural size and overflow the frame into neighboring content. An
+        // explicit propagated frame size (n.width/n.height) wins.
+        if (n.resizable && !n.fit) {
+          if (n.width == null) s.width = "100%";
+          if (n.height == null) s.height = "100%";
+        }
+        if (!n.resizable && n.width == null) s.maxWidth = "100%";
+        if (n.width == null && n.height == null) { s.minWidth = 0; s.minHeight = 0; }
+        return h("img", props);
+      }
+      case "textField":
+        return h(TextInput, { key: n.id || key, n: { ...n, baseStyle: s } });
+      case "slider":
+        props.type = "range";
+        props.min = 0;
+        props.max = 1;
+        props.step = 0.001;
+        props.value = n.v || 0;
+        props.onChange = (e) => sendEvent(n.edit, e.target.value);
+        s.alignSelf = "stretch";
+        return h("input", props);
+      case "progress":
+        if (n.v == null) {
+          props.className = ((props.className || "") + " uui-spinner").trim();
+          return h("div", props);
+        }
+        props.value = n.v;
+        props.max = 1;
+        s.alignSelf = "stretch";
+        return h("progress", props);
+      case "shape":
+      case "gradient": {
+        if (n.shape === "circle") s.borderRadius = "50%";
+        if (n.shape === "capsule") s.borderRadius = 9999;
+        if (n.fill) s.background = rgba(n.fill);
+        if (n.stroke) s.border = `${n.strokeWidth || 1}px solid ${rgba(n.stroke)}`;
+        if (n.width == null && !n.expandW) s.minWidth = 10;
+        if (n.height == null && !n.expandH) s.minHeight = 10;
+        s.display = "grid";
+        s.placeItems = "center";
+        return h("div", props, kids);
+      }
+      case "hostView":
+        if (n.view === "navstack") return navStack(n, key, kids);
+        if (n.view === "navsplit") return navSplit(n, key, kids);
+        if (n.view === "tabs") {
+          if ((n.params || {}).style === "sidebarAdaptable") {
+            return h(SidebarTabs, { key, n, kids });
+          }
+          if ((n.params || {}).style === "tabBarOnly" && tabPill && tabPill.consumed) {
+            // The selected tab's navigation bar took the pill: content only.
+            return h("div", {
+              key,
+              style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch", width: "100%" },
+            }, kids);
+          }
+          if ((n.params || {}).style === "tabBarOnly") {
+            // iPad / macOS-15 `.tabBarOnly` with a non-navigation tab root:
+            // a centered segmented pill in a slim strip at the TOP.
+            const p = n.params || {};
+            const dark = p.dark === "1";
+            const count = Number(p.count || 0);
+            const labels = [];
+            for (let i = 0; i < count; i++) labels.push(p["label" + i] || "");
+            return h("div", {
+              key,
+              style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch", width: "100%" },
+            },
+              h("div", {
+                key: "topbar",
+                style: {
+                  display: "flex", justifyContent: "center", alignItems: "center", flex: "none",
+                  padding: "6px 12px", background: dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)",
+                  borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+                },
+              }, h(Segmented, {
+                options: labels, selected: Number(p.selected || 0), dark, compact: true,
+                onSelect: (i) => sendEvent(n.edit, String(i)),
+              })),
+              h("div", { key: "content", style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } }, kids));
+          }
+          // Semantic tabs → the selected tab's content over the bottom bar.
+          return h("div", {
+            key,
+            style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch", width: "100%" },
+          },
+            h("div", { key: "content", style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } }, kids),
+            h(R.Fragment, { key: "bar" }, tabBar({ edit: n.edit, params: n.params })));
+        }
+        return hostView(n, props, kids);
+      case "presentation":
+        return presentation(n, kids);
+      default: {
+        // `.background(view)` / `.overlay(view)` layers: absolutely placed
+        // over the box's area, behind (z -1) or over (z 1) the content.
+        const layerOf = (i) => (((n.ch || [])[i] || {}).params || {}).layer;
+        if ((n.ch || []).some((c) => c.params && c.params.layer)) {
+          s.position = "relative";
+          s.zIndex = 0;
+          const wrap = (kid, i, z) => {
+            // `.overlay(alignment:)` / `.background(alignment:)`.
+            const [ah, av] = ((((n.ch || [])[i] || {}).params || {}).layerAlign || "center,center").split(",");
+            return h("div", {
+              key: `layer${i}`,
+              style: {
+                position: "absolute", inset: 0, display: "flex", zIndex: z, overflow: "hidden",
+                alignItems: av === "start" ? "flex-start" : av === "end" ? "flex-end" : "center",
+                justifyContent: ah === "start" ? "flex-start" : ah === "end" ? "flex-end" : "center",
+              },
+            }, kid);
+          };
+          kids = kids.map((kid, i) => {
+            const layer = layerOf(i);
+            return layer === "background" ? wrap(kid, i, -1) : layer === "overlay" ? wrap(kid, i, 1) : kid;
+          });
+        }
+        if (kids.length > 0) {
+          s.display = "flex";
+          // A positioning context for `.position`ed children.
+          if (!s.position) s.position = "relative";
+          s.flexDirection = "column";
+          s.alignItems = alignCSS[n.alignH] || "center";
+          s.justifyContent = alignCSS[n.alignV] || "center";
+          s.minHeight = 0;
+          s.minWidth = 0;
+        }
+        // Semantic list rows carry a `cell` role instead of baked-in
+        // chrome — this host's row idiom: comfortable padding, a minimum
+        // touch height, and a hairline separator.
+        if ((n.params || {}).cell === "row") {
+          s.padding = "11px 16px";
+          s.minHeight = 44;
+          s.boxSizing = "border-box";
+          s.justifyContent = "center";
+          s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+        }
+        // A GeometryReader wrapper: measure the box the host actually laid
+        // out and report it back ("<w>x<h>" on the `.geo` id), so the guest
+        // rebuilds the reader's content against its CONTAINER, not the
+        // canvas. The guest ignores same-size re-reports (empty patch), so
+        // remounts converge.
+        if ((n.params || {}).geo) {
+          return h(GeometryBox, { key, divProps: props, geoId: n.params.geo }, kids);
+        }
+        return h("div", props, kids);
+      }
+    }
+  }
+
+  return {
+    render(tree) {
+      root.render(render(tree, "root", "v"));
+    },
+  };
+}
