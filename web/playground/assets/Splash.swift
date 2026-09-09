@@ -26,6 +26,7 @@ let demos: [Demo] = [
 
 struct SplashPage: View {
     @State private var command = ""
+    @State private var commandCount = 0
 
     var body: some View {
         ScrollView {
@@ -45,7 +46,9 @@ struct SplashPage: View {
 
     private func send(_ value: String) {
         // A distinct value each time, so repeated commands are delivered.
-        command = value + "#" + String(Int(Date().timeIntervalSince1970 * 1000))
+        // (A counter, not the epoch in ms: Int is 32-bit on wasm.)
+        commandCount += 1
+        command = value + "#" + String(commandCount)
     }
 
     private var hero: some View {
