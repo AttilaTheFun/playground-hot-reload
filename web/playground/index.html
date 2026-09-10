@@ -145,6 +145,12 @@
     window.addEventListener("keydown", (event) => { if (event.key === "Escape" && shakeWaiters.length) { event.preventDefault(); fireShake(); } });
     window.__playgroundShake = fireShake;
 
+    // Preferences: localStorage, one namespace for the page and its builds.
+    const preferences = {
+      get(key) { return localStorage.getItem(sandbox + "preferences:" + key) || ""; },
+      set(key, value) { if (value) localStorage.setItem(sandbox + "preferences:" + key, value); else localStorage.removeItem(sandbox + "preferences:" + key); },
+    };
+
     // The services the USER's build sees while it runs (same table).
     const runDependencies = {
       networking: Dependencies.networkService(() => networking),
@@ -162,6 +168,7 @@
       configuration: Dependencies.configurationService(() => ({ flag(key) { return key === "promo_banner"; } })),
       imagePicker: Dependencies.imagePickerService(() => imagePicker),
       deviceMotion: Dependencies.deviceMotionService(() => deviceMotion),
+      preferences: Dependencies.preferencesService(() => preferences),
     };
 
     // --- The Playground host service: compile (worker), run (overlay), chat ----
@@ -231,10 +238,13 @@
       configuration: runDependencies.configuration,
       imagePicker: Dependencies.imagePickerService(() => imagePicker),
       deviceMotion: Dependencies.deviceMotionService(() => deviceMotion),
+      preferences: Dependencies.preferencesService(() => preferences),
       host: Dependencies.playgroundHostService(() => host),
     };
-    // The Playground is a React-renderer page (real DOM: text fields, scrolling).
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm", rendererName: "react", dependencies })
+    // React (real DOM: text fields, scrolling) unless Settings chose the
+    // self-drawing WebGPU renderer (applied on refresh, like this).
+    const rendererName = preferences.get("renderer") === "gpu" ? "webGPU" : "react";
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm", rendererName, dependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>

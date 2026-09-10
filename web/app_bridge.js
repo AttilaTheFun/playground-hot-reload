@@ -684,6 +684,80 @@ export function makeDispatcher_DeviceMotionService(impl, runtime) {
         throw new SwiftError("unknown DeviceMotionService method ordinal");
     };
 }
+export class SwiftPreferencesService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_PreferencesService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("PreferencesService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_PreferencesService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    get(key) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, key);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_PreferencesService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.string, result);
+    }
+    set(key, value) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, key);
+        Types.string.encode(w, value);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_PreferencesService_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+}
+/** Wraps a consumer-implemented `PreferencesService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_PreferencesService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const a0 = Types.string.decode(r);
+                return encodeWith(Types.string, impl.get(a0));
+            }
+            case 1: {
+                const a0 = Types.string.decode(r);
+                const a1 = Types.string.decode(r);
+                impl.set(a0, a1);
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown PreferencesService method ordinal");
+    };
+}
 export class SwiftGPUWebHost {
     handle;
     runtime;
@@ -1318,6 +1392,18 @@ export const Dependencies = {
             },
         };
     },
+    preferencesService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_PreferencesService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_PreferencesService(impl, runtime)(args);
+            },
+        };
+    },
     gPUWebHost: (provide, lazy = true) => {
         let impl;
         return {
@@ -1364,6 +1450,10 @@ export class SwiftUI {
     installPlatformDeviceMotion(deviceMotion) {
         const f0 = deviceMotion instanceof SwiftDeviceMotionService ? [deviceMotion.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_DeviceMotionService(deviceMotion, () => this.runtime))];
         this.runtime.call("swift_ffi_platform_services_installPlatformDeviceMotion", f0[0], f0[1]);
+    }
+    installPlatformPreferences(preferences) {
+        const f0 = preferences instanceof SwiftPreferencesService ? [preferences.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_PreferencesService(preferences, () => this.runtime))];
+        this.runtime.call("swift_ffi_platform_services_installPlatformPreferences", f0[0], f0[1]);
     }
     gpuConnect(host) {
         const f0 = host instanceof SwiftGPUWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_GPUWebHost(host, () => this.runtime))];
@@ -1514,6 +1604,7 @@ export async function load(wasm, options) {
     runtime.call("swift_ffi_platform_services_register_ConfigurationService");
     runtime.call("swift_ffi_platform_services_register_ImagePickerService");
     runtime.call("swift_ffi_platform_services_register_DeviceMotionService");
+    runtime.call("swift_ffi_platform_services_register_PreferencesService");
     runtime.call("swift_ffi_register_GPUWebHost");
     runtime.call("swift_ffi_register_WebHost");
     return new SwiftUI(runtime);
