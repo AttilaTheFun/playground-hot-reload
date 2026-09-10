@@ -311,6 +311,90 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
   }
 
+  // Syntax highlighting for the code editor: a small Swift tokenizer
+  // (comments, strings with interpolation, keywords, attributes, numbers,
+  // capitalized type names), emitted as spans over the textarea's text.
+  const SWIFT_KEYWORDS = new Set(("associatedtype class deinit enum extension func import init inout internal let " +
+    "operator private protocol public static struct subscript typealias var fileprivate open some any " +
+    "break case continue default defer do else fallthrough for guard if in repeat return switch where while " +
+    "as catch false is nil rethrows super self Self throw throws true try await async actor macro " +
+    "convenience dynamic final indirect lazy mutating nonmutating optional override required weak unowned").split(" "));
+  function highlightSwift(source, dark) {
+    const c = dark
+      ? { kw: "#fc5fa3", str: "#fc6a5d", com: "#6c7986", num: "#d0bf69", type: "#5dd8ff", attr: "#fd8f3f", txt: "rgba(255,255,255,0.92)" }
+      : { kw: "#ad3da4", str: "#d12f1b", com: "#5d6c79", num: "#272ad8", type: "#3f6e75", attr: "#947100", txt: "rgba(0,0,0,0.9)" };
+    const out = [];
+    const re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*")|(@[A-Za-z_]\w*)|(\b\d[\d_]*(?:\.\d+)?\b)|(\b[A-Za-z_]\w*\b)/g;
+    let last = 0, m, key = 0;
+    while ((m = re.exec(source))) {
+      if (m.index > last) out.push(source.slice(last, m.index));
+      let color = null;
+      if (m[1]) color = c.com;
+      else if (m[2]) color = c.str;
+      else if (m[3]) color = c.attr;
+      else if (m[4]) color = c.num;
+      else if (m[5]) color = SWIFT_KEYWORDS.has(m[5]) ? c.kw : (/^[A-Z]/.test(m[5]) ? c.type : null);
+      out.push(color ? h("span", { key: key++, style: { color } }, m[0]) : m[0]);
+      last = re.lastIndex;
+    }
+    if (last < source.length) out.push(source.slice(last));
+    out.push("\n");  // a trailing newline keeps the underlay as tall as the textarea's last line
+    return out;
+  }
+
+  // The code editor host view (`CodeEditor(text:fileName:)` on the web): a
+  // transparent-text textarea for input and caret over a <pre> underlay
+  // carrying the highlighted copy; both share font metrics and scroll.
+  function CodeEditor({ n }) {
+    const [value, setValue] = R.useState(n.v || "");
+    const pending = R.useRef([]);
+    const lastSerialized = R.useRef(n.v || "");
+    const preRef = R.useRef(null);
+    R.useEffect(() => {
+      const v = n.v || "";
+      if (v === lastSerialized.current) return;
+      lastSerialized.current = v;
+      setValue((current) => {
+        if (v === current) { pending.current = []; return current; }
+        const echo = pending.current.indexOf(v);
+        if (echo >= 0) { pending.current.splice(0, echo + 1); return current; }
+        pending.current = [];
+        return v;
+      });
+    }, [n.v]);
+    const dark = document.documentElement.dataset.theme === "dark"
+      || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const lang = (n.params || {}).lang || "plain";
+    const metrics = { fontFamily: MONO_FONT, fontSize: 13, lineHeight: "19px", tabSize: 4, whiteSpace: "pre", padding: "12px 14px", margin: 0, boxSizing: "border-box" };
+    const onChange = (e) => {
+      const next = e.target.value;
+      pending.current.push(next);
+      setValue(next);
+      sendEvent(n.edit, next);
+    };
+    // Tab inserts spaces instead of leaving the field.
+    const onKeyDown = (e) => {
+      if (e.key !== "Tab") return;
+      e.preventDefault();
+      const el = e.target, start = el.selectionStart, end = el.selectionEnd;
+      const next = value.slice(0, start) + "    " + value.slice(end);
+      pending.current.push(next);
+      setValue(next);
+      sendEvent(n.edit, next);
+      requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = start + 4; });
+    };
+    const onScroll = (e) => { if (preRef.current) { preRef.current.scrollTop = e.target.scrollTop; preRef.current.scrollLeft = e.target.scrollLeft; } };
+    return h("div", { style: { position: "relative", flex: "1 1 0", minHeight: 0, alignSelf: "stretch", width: "100%", height: "100%", overflow: "hidden", background: dark ? "#1f1f22" : "#fbfbfc" } },
+      h("pre", { ref: preRef, "aria-hidden": true, style: { ...metrics, position: "absolute", inset: 0, overflow: "hidden", color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.9)", pointerEvents: "none" } },
+        lang === "swift" ? highlightSwift(value, dark) : value + "\n"),
+      h("textarea", {
+        value, onChange, onKeyDown, onScroll, spellCheck: false, autoCapitalize: "off", autoCorrect: "off", autoComplete: "off",
+        "aria-label": (n.params || {}).a11yLabel || "Code",
+        style: { ...metrics, position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", outline: "none", resize: "none",
+          background: "transparent", color: "transparent", caretColor: dark ? "#fff" : "#000", overflow: "auto" },
+      }));
+  }
+
   // A segmented control (`.pickerStyle(.segmented)`, inline or in a bar).
   function Segmented({ options, selected, dark, onSelect, compact }) {
     return h("div", {
@@ -1022,6 +1106,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         props.src = n.v;
         props.style = { ...props.style, border: "none", width: "100%", height: "100%", flex: 1, alignSelf: "stretch" };
         return h("iframe", props);
+      case "codeeditor":
+        return h(CodeEditor, { key: props.key, n });
       case "surface": {
         // A page-owned surface: the host mounts its own DOM into this
         // element (`window.uuiSurfaceMount(name, element | null, send)`),
