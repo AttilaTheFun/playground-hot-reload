@@ -12,7 +12,7 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, registerForeign, registry, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js";
 // Re-exported so consumers keep importing them from this module.
 export { Types } from "./swift_ffi_runtime.js";
 /** The runtime type token for `TextMetrics` (generic calls). */
@@ -80,6 +80,610 @@ export const StoredValueType = {
         return { exists, contents };
     },
 };
+export const PlatformDependencyKeyType = {
+    encode(w, v) {
+        Types.string.encode(w, v);
+    },
+    decode(r) {
+        return Types.string.decode(r);
+    },
+};
+export class SwiftNetworkService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_NetworkService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("NetworkService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_NetworkService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    request(url, method) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.string.encode(w, url);
+        Types.string.encode(w, method);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.bytes, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_NetworkService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `NetworkService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_NetworkService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.string.decode(r);
+                const a1 = Types.string.decode(r);
+                if (!runtime)
+                    throw new SwiftError("NetworkService.request is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.request(a0, a1)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.bytes, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown NetworkService method ordinal");
+    };
+}
+export class SwiftFileService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_FileService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("FileService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_FileService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    list(path) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, path);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_FileService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.array(Types.string), result);
+    }
+    exists(path) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, path);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_FileService_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.bool, result);
+    }
+    read(path) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, path);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_FileService_invoke", handle, 2, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.bytes, result);
+    }
+    write(path, contents) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, path);
+        Types.bytes.encode(w, contents);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_FileService_invoke", handle, 3, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.bool, result);
+    }
+    delete(path) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, path);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_FileService_invoke", handle, 4, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.bool, result);
+    }
+    url(path) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, path);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_FileService_invoke", handle, 5, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.string, result);
+    }
+}
+/** Wraps a consumer-implemented `FileService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_FileService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const a0 = Types.string.decode(r);
+                return encodeWith(Types.array(Types.string), impl.list(a0));
+            }
+            case 1: {
+                const a0 = Types.string.decode(r);
+                return encodeWith(Types.bool, impl.exists(a0));
+            }
+            case 2: {
+                const a0 = Types.string.decode(r);
+                try {
+                    return encodeWith(Types.bytes, impl.read(a0));
+                }
+                catch (error) {
+                    return encodeError(error instanceof Error ? error.message : String(error));
+                }
+            }
+            case 3: {
+                const a0 = Types.string.decode(r);
+                const a1 = Types.bytes.decode(r);
+                return encodeWith(Types.bool, impl.write(a0, a1));
+            }
+            case 4: {
+                const a0 = Types.string.decode(r);
+                return encodeWith(Types.bool, impl.delete(a0));
+            }
+            case 5: {
+                const a0 = Types.string.decode(r);
+                return encodeWith(Types.string, impl.url(a0));
+            }
+        }
+        throw new SwiftError("unknown FileService method ordinal");
+    };
+}
+export class SwiftKeychainService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_KeychainService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("KeychainService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_KeychainService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    get(key) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.string.encode(w, key);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.bytes, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_KeychainService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+    set(value, for_) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.bytes.encode(w, value);
+        Types.string.encode(w, for_);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return undefined;
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_KeychainService_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `KeychainService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_KeychainService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.string.decode(r);
+                if (!runtime)
+                    throw new SwiftError("KeychainService.get is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.get(a0)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.bytes, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 1: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.bytes.decode(r);
+                const a1 = Types.string.decode(r);
+                if (!runtime)
+                    throw new SwiftError("KeychainService.set is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.set(a0, a1)).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown KeychainService method ordinal");
+    };
+}
+export class SwiftAnalyticsService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_AnalyticsService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("AnalyticsService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_AnalyticsService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    track(event) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, event);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_AnalyticsService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+}
+/** Wraps a consumer-implemented `AnalyticsService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_AnalyticsService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const a0 = Types.string.decode(r);
+                impl.track(a0);
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown AnalyticsService method ordinal");
+    };
+}
+export class SwiftConfigurationService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_ConfigurationService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("ConfigurationService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_ConfigurationService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    flag(key) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, key);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_ConfigurationService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.bool, result);
+    }
+}
+/** Wraps a consumer-implemented `ConfigurationService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_ConfigurationService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const a0 = Types.string.decode(r);
+                return encodeWith(Types.bool, impl.flag(a0));
+            }
+        }
+        throw new SwiftError("unknown ConfigurationService method ordinal");
+    };
+}
+export class SwiftImagePickerService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_ImagePickerService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("ImagePickerService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_ImagePickerService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    pickImage(maxDimension) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.int.encode(w, maxDimension);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.string, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_ImagePickerService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `ImagePickerService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_ImagePickerService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.int.decode(r);
+                if (!runtime)
+                    throw new SwiftError("ImagePickerService.pickImage is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.pickImage(a0)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown ImagePickerService method ordinal");
+    };
+}
+export class SwiftDeviceMotionService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_DeviceMotionService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("DeviceMotionService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_DeviceMotionService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    nextShake() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return undefined;
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_DeviceMotionService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `DeviceMotionService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_DeviceMotionService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("DeviceMotionService.nextShake is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.nextShake()).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown DeviceMotionService method ordinal");
+    };
+}
 export class SwiftGPUWebHost {
     handle;
     runtime;
@@ -630,6 +1234,90 @@ export function makeDispatcher_WebHost(impl, runtime) {
 }
 /** Builders wrapping host implementations for injection. */
 export const Dependencies = {
+    networkService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_NetworkService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_NetworkService(impl, runtime)(args);
+            },
+        };
+    },
+    fileService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_FileService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_FileService(impl, runtime)(args);
+            },
+        };
+    },
+    keychainService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_KeychainService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_KeychainService(impl, runtime)(args);
+            },
+        };
+    },
+    analyticsService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_AnalyticsService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_AnalyticsService(impl, runtime)(args);
+            },
+        };
+    },
+    configurationService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_ConfigurationService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_ConfigurationService(impl, runtime)(args);
+            },
+        };
+    },
+    imagePickerService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_ImagePickerService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_ImagePickerService(impl, runtime)(args);
+            },
+        };
+    },
+    deviceMotionService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_DeviceMotionService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_DeviceMotionService(impl, runtime)(args);
+            },
+        };
+    },
     gPUWebHost: (provide, lazy = true) => {
         let impl;
         return {
@@ -660,6 +1348,22 @@ export class SwiftUI {
     /** @internal */
     constructor(runtime) {
         this.runtime = runtime;
+    }
+    installPlatformDependencies(networking, file, keychain, analytics, configuration) {
+        const f0 = networking instanceof SwiftNetworkService ? [networking.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_NetworkService(networking, () => this.runtime))];
+        const f1 = file instanceof SwiftFileService ? [file.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_FileService(file, () => this.runtime))];
+        const f2 = keychain instanceof SwiftKeychainService ? [keychain.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_KeychainService(keychain, () => this.runtime))];
+        const f3 = analytics instanceof SwiftAnalyticsService ? [analytics.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_AnalyticsService(analytics, () => this.runtime))];
+        const f4 = configuration instanceof SwiftConfigurationService ? [configuration.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_ConfigurationService(configuration, () => this.runtime))];
+        this.runtime.call("swift_ffi_platform_services_installPlatformDependencies", f0[0], f0[1], f1[0], f1[1], f2[0], f2[1], f3[0], f3[1], f4[0], f4[1]);
+    }
+    installPlatformImagePicker(imagePicker) {
+        const f0 = imagePicker instanceof SwiftImagePickerService ? [imagePicker.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_ImagePickerService(imagePicker, () => this.runtime))];
+        this.runtime.call("swift_ffi_platform_services_installPlatformImagePicker", f0[0], f0[1]);
+    }
+    installPlatformDeviceMotion(deviceMotion) {
+        const f0 = deviceMotion instanceof SwiftDeviceMotionService ? [deviceMotion.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_DeviceMotionService(deviceMotion, () => this.runtime))];
+        this.runtime.call("swift_ffi_platform_services_installPlatformDeviceMotion", f0[0], f0[1]);
     }
     gpuConnect(host) {
         const f0 = host instanceof SwiftGPUWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_GPUWebHost(host, () => this.runtime))];
@@ -784,9 +1488,9 @@ export async function load(wasm, options) {
             });
         },
         async_complete: (callId, blobPtr, blobLen) => {
-            void callId;
-            void blobPtr;
-            void blobLen;
+            const pending = pendingCalls.get(callId);
+            pendingCalls.delete(callId);
+            pending.resolve(pending.decode(foreignBytes(blobPtr, blobLen)));
         },
     };
     const imports = {
@@ -803,6 +1507,13 @@ export async function load(wasm, options) {
     instance.exports._initialize();
     runtime = new Runtime(instance.exports);
     // Register the interfaces' dependency-proxy factories (docs/wasm_di.md).
+    runtime.call("swift_ffi_platform_services_register_NetworkService");
+    runtime.call("swift_ffi_platform_services_register_FileService");
+    runtime.call("swift_ffi_platform_services_register_KeychainService");
+    runtime.call("swift_ffi_platform_services_register_AnalyticsService");
+    runtime.call("swift_ffi_platform_services_register_ConfigurationService");
+    runtime.call("swift_ffi_platform_services_register_ImagePickerService");
+    runtime.call("swift_ffi_platform_services_register_DeviceMotionService");
     runtime.call("swift_ffi_register_GPUWebHost");
     runtime.call("swift_ffi_register_WebHost");
     return new SwiftUI(runtime);

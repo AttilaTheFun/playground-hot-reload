@@ -1,8 +1,12 @@
-// The Universal UI site's front page — written in Universal UI's SwiftUI and
-// compiled to wasm like the demos it shows. The page's host handles its
-// commands: `demo:<name>` runs a demo bundle full screen, `playground`
-// opens the in-browser Playground, `edit` opens this very file there.
+// The Universal UI site's front page — a post about the framework, written in
+// Universal UI's SwiftUI and compiled to wasm, with the example apps embedded
+// INLINE as subviews (the same Counter / 2048 / Pokédex sources every example
+// app ships) inside framed cards you can use and scroll past. The pencil in
+// each card's corner (and in the page's corner) opens the Playground on that
+// source; the page's host handles the commands (`template:<name>`, `edit`,
+// `playground`).
 
+import PlatformServices
 import SwiftUI
 import SwiftUIExtensions
 
@@ -11,35 +15,68 @@ struct SplashApp: App {
     var body: some Scene { WindowGroup { SplashPage() } }
 }
 
-struct Demo: Identifiable {
-    let id: String
-    let title: String
-    let blurb: String
-    let symbol: String
-}
-
-let demos: [Demo] = [
-    Demo(id: "example_full", title: "Example app", blurb: "Pokédex, Hacker News, Wikipedia, 2048, a meme maker and more — one SwiftUI codebase.", symbol: "square.grid.2x2"),
-    Demo(id: "tap_counter", title: "Tap counter", blurb: "The smallest app: one button, one number — the benchmark cell every platform runs.", symbol: "plus.circle"),
-    Demo(id: "hot_demo", title: "Hot reload demo", blurb: "A feature bundle the hosts swap in live — the same bytes the phone hot-reloads.", symbol: "arrow.triangle.2.circlepath"),
-]
-
 struct SplashPage: View {
     @State private var command = ""
     @State private var commandCount = 0
+    /// The Pokédex's caught record (persisted through the file service).
+    @StateObject private var pokedex = PokedexStore()
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                hero
-                demoGrid
-                playground
+            VStack(alignment: .leading, spacing: 36) {
+                header
+                section("What it is") {
+                    Para("Universal UI is a reimplementation of SwiftUI. Apps are written against Apple's SwiftUI API — `import SwiftUI`, `@State`, `NavigationStack`, `List`, gestures, animations — and the same source compiles for every platform: on iOS and macOS it is Apple's SwiftUI, and everywhere else (the web, Android, Linux, Windows) it is this reimplementation, which turns the view tree into a compact render tree and hands it to a renderer.")
+                    Para("The whole page you are reading is one of those apps, running as WebAssembly in your browser. So are the examples below — they are the example apps' own screens, embedded here as ordinary subviews. Try them; then press the pencil to open the source in the Playground.")
+                    DemoCard(title: "Counter", template: "Counter", note: "State and a button — the smallest app.", send: send) {
+                        NavigationStack { CounterScreen() }
+                    }
+                }
+                section("How it works: one tree, pluggable renderers") {
+                    Para("Every frame, the app's SwiftUI body builds a render tree: stacks, text, images, shapes, scroll views, inputs, navigation chrome. It is diffed and serialized as patches on a small FlatBuffers wire format, and a renderer applies it. Renderers are pluggable and come in two kinds.")
+                    Para("Component-system renderers build the platform's own components from the tree — React DOM on the web (this page), Jetpack Compose or classic Views on Android, SwiftUI or UIKit views on Apple when a feature runs as a bundle inside a native app. They get the platform's native feel for free: real text fields, real scrolling, real navigation bars.")
+                    Para("The self-drawing renderer, SwiftGPU, draws everything itself — layout, text, chrome — identically on every backend, for hosts without a component system or for pixel-identical output across platforms.")
+                    DemoCard(title: "2048", template: "2048", note: "Drag gestures, GeometryReader layout, withAnimation — swipe the board.", send: send) {
+                        NavigationStack { Game2048Screen() }
+                    }
+                }
+                section("Compiled, or WebAssembly") {
+                    Para("The same Swift ships two ways. Compiled, it links straight into the app for the platform's native performance. As WebAssembly, it becomes a self-contained feature bundle a host runs in a wasm engine — WAMR, wasmtime, JavaScriptCore, WasmKit, or the browser — which is what makes hot reload possible: a native iOS or Android app can swap a feature's bundle live, and a phone can pull new versions of an app as they are published.")
+                    Para("In the browser it goes one step further: the Playground compiles Swift itself, in the page, with swift-frontend and wasm-ld compiled to WebAssembly. Edit this page there and Run, and the site recompiles without leaving the browser.")
+                }
+                section("Pluggable GPUs") {
+                    Para("The SwiftGPU renderer draws through a GPU abstraction with pluggable backends — Metal on Apple, OpenGL ES on Android, WebGPU in the browser — and a host can bring its own device. The same abstraction powers SwiftMap, an OpenStreetMap renderer that drops into Universal UI apps as a map view on every platform.")
+                }
+                section("Dependency injection") {
+                    Para("Apps reach the platform through injected services rather than platform APIs: networking, files, the keychain, analytics, feature flags, the image picker, device motion. Each is a Swift protocol the host implements natively — URLSession and the Keychain on Apple, HttpURLConnection on Android, fetch and localStorage on the web — and injects at launch, so a feature's business logic is the same everywhere and testable anywhere.")
+                    Para("The Pokédex below uses the network service for the list and artwork, and the file service to remember which Pokémon you have caught — in your browser's storage here, on disk in the native apps.")
+                    DemoCard(title: "Pokédex", template: "Pokédex", note: "Networking + a persisted record through injected services.", send: send) {
+                        NavigationStack { PokedexScreen() }.environmentObject(pokedex)
+                    }
+                }
+                section("Try it") {
+                    Para("The Playground is a Swift compiler and an agent in a static web page: describe an app, and it writes the SwiftUI, compiles it in your browser, fixes its own errors, and runs it. Or open this page's source and change it.")
+                    HStack(spacing: 12) {
+                        Button { send("playground") } label: { Label("Open the Playground", systemImage: "play.fill") }
+                            .buttonStyle(.borderedProminent)
+                        Button { send("edit") } label: { Label("Edit this page", systemImage: "pencil") }
+                            .buttonStyle(.bordered)
+                    }
+                }
                 footer
             }
-            .frame(maxWidth: 980)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 40)
+            .frame(maxWidth: 760)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 36)
             .frame(maxWidth: .infinity)
+        }
+        .overlay(alignment: .topTrailing) {
+            // The page's own pencil: this file, in the Playground.
+            Button { send("edit") } label: { Image(systemName: "pencil") }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Edit this page")
+                .accessibilityIdentifier("edit-page")
+                .padding(14)
         }
         .platformCommand("splash", command, on: .wasm)
     }
@@ -51,69 +88,21 @@ struct SplashPage: View {
         command = value + "#" + String(commandCount)
     }
 
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Universal UI")
-                .font(.system(size: 44, weight: .bold))
-            Text("SwiftUI, everywhere.")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundColor(.secondary)
-            Text("A reimplementation of SwiftUI that compiles to WebAssembly, Android, Linux and Windows — and runs as the real thing on Apple platforms. Write `import SwiftUI` once; ship it as native views, as the web, or as a hot-reloadable bundle inside a native app.")
-                .font(.system(size: 17))
-                .lineSpacing(4)
-            HStack(spacing: 12) {
-                Button { send("playground") } label: {
-                    Label("Open the Playground", systemImage: "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                Button { send("edit") } label: {
-                    Label("Edit this page", systemImage: "pencil")
-                }
-                .buttonStyle(.bordered)
-            }
-            .padding(.top, 6)
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Universal UI").font(.system(size: 44, weight: .bold))
+            Text("SwiftUI, everywhere.").font(.system(size: 26, weight: .semibold)).foregroundColor(.secondary)
             Text("This website is written in SwiftUI. You can edit it and re-compile the code without leaving the page.")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(.accentColor)
+                .padding(.top, 4)
         }
     }
 
-    private var demoGrid: some View {
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Demos").font(.title2).bold()
-            Text("Each one is Swift compiled to wasm, rendered by the same tree the native hosts render. Tap to run it here.")
-                .foregroundColor(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 16)], spacing: 16) {
-                ForEach(demos) { demo in
-                    Button { send("demo:" + demo.id) } label: {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Image(systemName: demo.symbol).font(.system(size: 28)).foregroundColor(.accentColor)
-                            Text(demo.title).font(.headline)
-                            Text(demo.blurb).font(.subheadline).foregroundColor(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(18)
-                        .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray.opacity(0.12)))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("demo-" + demo.id)
-                }
-            }
-        }
-    }
-
-    private var playground: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("The Playground").font(.title2).bold()
-            Text("Describe an app, and an agent writes the SwiftUI, compiles it to WebAssembly — in your browser — and runs it. Or open the editor and change this page: Run re-compiles it right here.")
-                .foregroundColor(.secondary)
-            HStack(spacing: 12) {
-                Button { send("playground") } label: { Text("Open the Playground") }
-                    .buttonStyle(.borderedProminent)
-                Button { send("edit") } label: { Text("Edit this page") }
-                    .buttonStyle(.bordered)
-            }
+            Text(title).font(.system(size: 26, weight: .bold))
+            content()
         }
     }
 
@@ -123,5 +112,54 @@ struct SplashPage: View {
             Text("Universal UI · SwiftUI reimplementation · wasm, Android, Linux, Windows, Apple")
                 .font(.footnote).foregroundColor(.secondary)
         }
+    }
+}
+
+/// A paragraph of the post.
+struct Para: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text).font(.system(size: 17)).lineSpacing(5)
+    }
+}
+
+/// An example app embedded inline: the screen inside a phone-sized, rounded,
+/// bordered card with a shadow, usable in place, with a pencil that opens
+/// its source in the Playground.
+struct DemoCard<Content: View>: View {
+    let title: String
+    let template: String
+    let note: String
+    let send: (String) -> Void
+    let content: Content
+
+    init(title: String, template: String, note: String, send: @escaping (String) -> Void, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.template = template
+        self.note = note
+        self.send = send
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(height: 560)
+                .clipShape(RoundedRectangle(cornerRadius: 28))
+                .overlay(RoundedRectangle(cornerRadius: 28).stroke(Color.gray.opacity(0.35), lineWidth: 1))
+                .shadow(color: Color.black.opacity(0.25), radius: 24, x: 0, y: 12)
+                .overlay(alignment: .topTrailing) {
+                    Button { send("template:" + template) } label: { Image(systemName: "pencil") }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Edit \(title) in the Playground")
+                        .accessibilityIdentifier("edit-" + template)
+                        .padding(10)
+                }
+                .frame(maxWidth: 400)
+            Text(note).font(.footnote).foregroundColor(.secondary)
+        }
+        .padding(.vertical, 6)
     }
 }

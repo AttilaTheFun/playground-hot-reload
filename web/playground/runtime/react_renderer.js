@@ -1317,6 +1317,13 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.height = "100%";
       }
     }
+    // Finite frame bounds: a `.frame(maxWidth: 400)` view is flexible up to
+    // the cap (it takes what it is offered, then stops growing).
+    const bounds = n.params || {};
+    if (bounds.maxW != null && n.width == null) { s.maxWidth = Number(bounds.maxW); if (!n.expandW) s.width = "100%"; s.boxSizing = "border-box"; }
+    if (bounds.maxH != null && n.height == null) { s.maxHeight = Number(bounds.maxH); s.boxSizing = "border-box"; }
+    if (bounds.minW != null) s.minWidth = Number(bounds.minW);
+    if (bounds.minH != null) s.minHeight = Number(bounds.minH);
     // SwiftUI fixed frames don't compress; keep flexbox from shrinking them
     // along the parent's main axis.
     if (parentAxis === "h" && n.width != null) s.flexShrink = 0;
