@@ -243,6 +243,10 @@
     };
     // React (real DOM: text fields, scrolling) unless Settings chose the
     // self-drawing WebGPU renderer (applied on refresh, like this).
+    // `?renderer=react|webGPU` overrides the stored preference (and stores
+    // it) — the way back if a renderer cannot show Settings.
+    const forced = new URLSearchParams(location.search).get("renderer");
+    if (forced === "react" || forced === "webGPU") preferences.set("renderer", forced === "webGPU" ? "gpu" : "native");
     const rendererName = preferences.get("renderer") === "gpu" ? "webGPU" : "react";
     boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm", rendererName, dependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
