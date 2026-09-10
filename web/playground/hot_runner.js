@@ -9,6 +9,42 @@ export function createRunner({ dependencies }) {
   let handle = null;
   let lines = [];
   const log = (line) => { lines.push(line); if (lines.length > 400) lines.shift(); };
+  // The build's DOM lives in `container`; it is parked in the app's run
+  // surface (the Playground's full-screen cover) when one is mounted, and
+  // in the fallback overlay (its own Stop bar) otherwise — the headless
+  // dev hook runs without the app's cover.
+  const container = document.createElement("div");
+  container.className = "run-host";
+  let surface = null;
+  let surfaceSend = null;
+  let fallbackTimer = null;
+
+  function mount(el, send) {
+    if (el) {
+      surface = el;
+      surfaceSend = send;
+      if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+      if (overlay) overlay.style.display = "none";
+      el.appendChild(container);
+      if (handle) handle._resize();
+      return;
+    }
+    surface = null;
+    surfaceSend = null;
+    // React re-renders unmount/remount the surface element (a null ref,
+    // then the new element); only a cover that stays gone falls back to
+    // the overlay with the run still up.
+    if (handle && !fallbackTimer) {
+      fallbackTimer = setTimeout(() => { fallbackTimer = null; if (handle && !surface) showFallback(); }, 300);
+    }
+  }
+
+  function showFallback() {
+    const root = ensureOverlay();
+    root.appendChild(container);
+    root.style.display = "flex";
+    if (handle) handle._resize();
+  }
 
   function ensureOverlay() {
     if (overlay) return overlay;
@@ -16,8 +52,7 @@ export function createRunner({ dependencies }) {
     overlay.id = "playground-run";
     overlay.innerHTML =
       '<div class="run-bar"><span class="run-title">Running your build</span>' +
-      '<button class="run-stop" aria-label="Stop">Stop</button></div>' +
-      '<div class="run-host"></div>';
+      '<button class="run-stop" aria-label="Stop">Stop</button></div>';
     overlay.querySelector(".run-stop").onclick = () => stop();
     document.body.appendChild(overlay);
     return overlay;
@@ -26,10 +61,9 @@ export function createRunner({ dependencies }) {
   async function run(wasm) {
     stop();
     lines = [];
-    const root = ensureOverlay();
-    root.style.display = "flex";
-    const container = root.querySelector(".run-host");
     container.innerHTML = "";
+    if (surface) surface.appendChild(container);
+    else fallbackTimer = setTimeout(() => { fallbackTimer = null; if (handle && !surface) showFallback(); }, 800);
     try {
       handle = await runHotBundle({
         wasm,
@@ -51,11 +85,15 @@ export function createRunner({ dependencies }) {
   }
 
   function stop() {
+    if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+    const wasRunning = !!handle;
     if (handle) {
       try { window.removeEventListener("resize", handle._resize); handle.stop(); } catch (_) {}
       handle = null;
     }
+    container.innerHTML = "";
     if (overlay) overlay.style.display = "none";
+    if (wasRunning && surfaceSend) surfaceSend("stopped");
   }
 
   // --- Driving the run (the agent's ui_tree / tap / type_text / submit / swipe) ---
@@ -128,5 +166,5 @@ export function createRunner({ dependencies }) {
     return "error: unknown action";
   }
 
-  return { run, stop, uiTree, drive, logs: () => (lines.length ? lines.join("\n") : "(no log output yet)") };
+  return { run, stop, mount, uiTree, drive, logs: () => (lines.length ? lines.join("\n") : "(no log output yet)") };
 }

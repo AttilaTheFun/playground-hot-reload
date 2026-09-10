@@ -14,6 +14,8 @@
 
 export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/", mapSurface = null }) {
   const R = window.React;
+  const SYSTEM_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+  const MONO_FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
   const h = R.createElement;
   const root = window.ReactDOM.createRoot(container);
 
@@ -195,10 +197,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, [n.v]);
     const p = n.params || {};
     const multiline = p.axis === "v";
+    // `TextEditor`: fills its container and scrolls inside — no line cap.
+    const editor = p.editor === "1";
     const lineHeight = (n.size || 15) * 1.35;
     const fit = () => {
       const el = areaRef.current;
-      if (!el) return;
+      if (!el || editor) return;
       el.style.height = "auto";
       const max = Number(p.maxLines || 5) * lineHeight + (p.fieldStyle === "plain" ? 0 : 14);
       el.style.height = `${Math.min(el.scrollHeight, max)}px`;
@@ -221,6 +225,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       color: "inherit",
       minWidth: 0,
       alignSelf: "stretch",
+      // Form controls don't inherit the page font (Safari falls back to
+      // the UA's serif); pin the system stack like every text node.
+      fontFamily: p.mono === "1" ? MONO_FONT : SYSTEM_FONT,
     };
     // `.keyboardType` → inputmode/type hints; `.textInputAutocapitalization`
     // and `.autocorrectionDisabled` → their HTML attributes.
@@ -268,6 +275,27 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         }
       },
     };
+    if (editor) {
+      return h("textarea", {
+        ...shared,
+        ref: areaRef,
+        spellCheck: false,
+        autoCapitalize: "off",
+        autoCorrect: "off",
+        style: {
+          ...style,
+          lineHeight: `${lineHeight}px`,
+          resize: "none",
+          flex: "1 1 0",
+          minHeight: 0,
+          height: "100%",
+          boxSizing: "border-box",
+          overflow: "auto",
+          whiteSpace: "pre",
+          tabSize: 4,
+        },
+      });
+    }
     if (multiline) {
       return h("textarea", {
         ...shared,
@@ -277,7 +305,6 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           ...style,
           lineHeight: `${lineHeight}px`,
           resize: "none",
-          fontFamily: "inherit",
         },
       });
     }
@@ -339,6 +366,10 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const segments = split("segments").map((s) => (s ? s.split("\u001f") : []));
     const segmentSelected = split("segmentSelected").map((s) => Number(s) || 0);
     const prominent = split("prominent");
+    // `.accessibilityLabel` on a bar button → aria-label (glyph-only items
+    // like ✎ / ▶︎ read as "Edit" / "Run" to assistive tech and the tap tool).
+    const leadingLabels = split("leadingLabels");
+    const trailingLabels = split("trailingLabels");
     const trailingItem = (i, extra) => segments[i] && segments[i].length
       ? h(Segmented, {
           key: `t${i}`, options: segments[i], selected: segmentSelected[i] || 0, dark, compact: true,
@@ -346,6 +377,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         })
       : h("button", {
           key: `t${i}`,
+          "aria-label": trailingLabels[i] || undefined,
           style: { ...button, ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
           onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
         }, trailing[i] || "");
@@ -357,7 +389,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           ? h("button", { key: "back", style: button, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) }, "‹ Back")
           : null,
         leading.map((title, i) => h("button", {
-          key: `l${i}`, style: button,
+          key: `l${i}`, style: button, "aria-label": leadingLabels[i] || undefined,
           onClick: () => sendEvent(n.edit, `leading:${i}`),
         }, title))),
       h("div", {
@@ -466,6 +498,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           dark: p.dark,
           leading: p.leading,
           trailingItems: p.trailingItems,
+          leadingLabels: p.leadingLabels,
+          trailingLabels: p.trailingLabels,
           principal: p.principal,
           segments: p.segments,
           segmentSelected: p.segmentSelected,
@@ -988,6 +1022,20 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         props.src = n.v;
         props.style = { ...props.style, border: "none", width: "100%", height: "100%", flex: 1, alignSelf: "stretch" };
         return h("iframe", props);
+      case "surface": {
+        // A page-owned surface: the host mounts its own DOM into this
+        // element (`window.uuiSurfaceMount(name, element | null, send)`),
+        // e.g. the Playground's running build; `send` reports back through
+        // the host view's value channel.
+        props.style = {
+          ...props.style, width: "100%", height: "100%", flex: 1,
+          alignSelf: "stretch", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column",
+        };
+        const name = n.v;
+        const send = (value) => sendEvent(n.edit, value);
+        props.ref = (el) => { if (window.uuiSurfaceMount) window.uuiSurfaceMount(name, el, send); };
+        return h("div", props);
+      }
       case "map": {
         // Real SwiftMap tiles: the wasm module draws into the page canvas,
         // which the boot layer parks inside this element (mapSurface). This
@@ -1079,7 +1127,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const compact = window.innerWidth < 700;
     const child = (n.ch || [])[0] || {};
     const greedy = !!child.growH || !!child.expandH;
-    const sheetStyle = compact
+    // `.fullScreenCover`: the panel IS the screen.
+    const cover = !!(n.params && n.params.cover === "1");
+    const sheetStyle = cover
+      ? {
+          background: panelBg, width: "100%", height: "100%", boxSizing: "border-box",
+          overflow: "hidden", padding: 0, display: "flex", flexDirection: "column", alignItems: "stretch",
+        }
+      : compact
       ? {
           background: panelBg, borderTopLeftRadius: 14, borderTopRightRadius: 14,
           width: "100%", boxSizing: "border-box",
@@ -1099,9 +1154,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       style: {
         position: "fixed", inset: 0, display: "flex", zIndex: 20,
         alignItems: isAlert || !compact ? "center" : "flex-end", justifyContent: "center",
-        background: "rgba(0,0,0,0.35)",
+        background: cover ? "transparent" : "rgba(0,0,0,0.35)",
       },
-      onClick: () => sendEvent(n.dismiss, ""),
+      onClick: () => { if (!cover) sendEvent(n.dismiss, ""); },
     }, h("div", {
       onClick: (e) => e.stopPropagation(),
       style: isAlert
@@ -1242,7 +1297,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.fontWeight = n.weight;
         s.color = rgba(n.color);
         s.whiteSpace = "pre-wrap";
-        s.fontFamily = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+        s.fontFamily = (n.params && n.params.mono === "1") ? MONO_FONT : SYSTEM_FONT;
         if (n.lines) {
           s.display = "-webkit-box";
           s.WebkitLineClamp = n.lines;

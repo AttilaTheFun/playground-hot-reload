@@ -619,6 +619,79 @@ export function makeDispatcher_ImagePickerService(impl, runtime) {
         throw new SwiftError("unknown ImagePickerService method ordinal");
     };
 }
+export class SwiftDeviceMotionService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_DeviceMotionService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("DeviceMotionService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_DeviceMotionService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    nextShake() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return undefined;
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_DeviceMotionService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `DeviceMotionService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_DeviceMotionService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("DeviceMotionService.nextShake is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.nextShake()).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown DeviceMotionService method ordinal");
+    };
+}
 export class SwiftGPUWebHost {
     handle;
     runtime;
@@ -1649,6 +1722,18 @@ export const Dependencies = {
             },
         };
     },
+    deviceMotionService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_DeviceMotionService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_DeviceMotionService(impl, runtime)(args);
+            },
+        };
+    },
     gPUWebHost: (provide, lazy = true) => {
         let impl;
         return {
@@ -1703,6 +1788,10 @@ export class SwiftUI {
     installPlatformImagePicker(imagePicker) {
         const f0 = imagePicker instanceof SwiftImagePickerService ? [imagePicker.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_ImagePickerService(imagePicker, () => this.runtime))];
         this.runtime.call("swift_ffi_platform_services_installPlatformImagePicker", f0[0], f0[1]);
+    }
+    installPlatformDeviceMotion(deviceMotion) {
+        const f0 = deviceMotion instanceof SwiftDeviceMotionService ? [deviceMotion.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_DeviceMotionService(deviceMotion, () => this.runtime))];
+        this.runtime.call("swift_ffi_platform_services_installPlatformDeviceMotion", f0[0], f0[1]);
     }
     gpuConnect(host) {
         const f0 = host instanceof SwiftGPUWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_GPUWebHost(host, () => this.runtime))];
@@ -1852,6 +1941,7 @@ export async function load(wasm, options) {
     runtime.call("swift_ffi_platform_services_register_AnalyticsService");
     runtime.call("swift_ffi_platform_services_register_ConfigurationService");
     runtime.call("swift_ffi_platform_services_register_ImagePickerService");
+    runtime.call("swift_ffi_platform_services_register_DeviceMotionService");
     runtime.call("swift_ffi_register_GPUWebHost");
     runtime.call("swift_ffi_register_WebHost");
     runtime.call("swift_ffi_playground_web_register_PlaygroundHostService");

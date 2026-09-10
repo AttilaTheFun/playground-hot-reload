@@ -17,7 +17,7 @@
       background: light-dark(#f2f2f4, #1c1c1e); border-bottom: 1px solid light-dark(#ddd, #333); }
     #playground-run .run-stop { font: 13px -apple-system, system-ui, sans-serif; padding: 4px 12px; border-radius: 8px;
       border: none; background: #e0382f; color: #fff; cursor: pointer; }
-    #playground-run .run-host { flex: 1; position: relative; overflow: hidden; }
+    .run-host { flex: 1; position: relative; overflow: hidden; align-self: stretch; min-height: 0; }
   </style>
 </head>
 <body>
@@ -121,6 +121,30 @@
         });
       },
     };
+    // Device motion: `nextShake` resolves on the next shake — the
+    // accelerometer (iOS asks permission, which must come from a tap, so
+    // the first touch requests it) or Esc on a keyboard.
+    const shakeWaiters = [];
+    const fireShake = () => { const pending = shakeWaiters.splice(0); pending.forEach((resolve) => resolve()); };
+    const deviceMotion = { nextShake() { return new Promise((resolve) => shakeWaiters.push(resolve)); } };
+    let lastAccel = null, lastShake = 0;
+    window.addEventListener("devicemotion", (event) => {
+      const a = event.accelerationIncludingGravity;
+      if (!a || a.x == null) return;
+      if (lastAccel) {
+        const delta = Math.abs(a.x - lastAccel.x) + Math.abs(a.y - lastAccel.y) + Math.abs(a.z - lastAccel.z);
+        const now = Date.now();
+        if (delta > 25 && now - lastShake > 1000) { lastShake = now; fireShake(); }
+      }
+      lastAccel = { x: a.x, y: a.y, z: a.z };
+    });
+    if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+      const ask = () => { DeviceMotionEvent.requestPermission().catch(() => {}); window.removeEventListener("touchend", ask); };
+      window.addEventListener("touchend", ask);
+    }
+    window.addEventListener("keydown", (event) => { if (event.key === "Escape" && shakeWaiters.length) { event.preventDefault(); fireShake(); } });
+    window.__playgroundShake = fireShake;
+
     // The services the USER's build sees while it runs (same table).
     const runDependencies = {
       networking: Dependencies.networkService(() => networking),
@@ -137,10 +161,13 @@
       analytics: Dependencies.analyticsService(() => ({ track(event) { console.log("[analytics]", event); } })),
       configuration: Dependencies.configurationService(() => ({ flag(key) { return key === "promo_banner"; } })),
       imagePicker: Dependencies.imagePickerService(() => imagePicker),
+      deviceMotion: Dependencies.deviceMotionService(() => deviceMotion),
     };
 
     // --- The Playground host service: compile (worker), run (overlay), chat ----
     const runner = createRunner({ dependencies: runDependencies });
+    // The app's run cover hosts the build: its `surface` host view mounts here.
+    window.uuiSurfaceMount = (name, element, send) => { if (name === "run") runner.mount(element, send); };
     const worker = new Worker("./compiler_worker.js", { type: "module" });
     const pending = new Map();
     let nextID = 1;
@@ -203,6 +230,7 @@
       analytics: runDependencies.analytics,
       configuration: runDependencies.configuration,
       imagePicker: Dependencies.imagePickerService(() => imagePicker),
+      deviceMotion: Dependencies.deviceMotionService(() => deviceMotion),
       host: Dependencies.playgroundHostService(() => host),
     };
     // The Playground is a React-renderer page (real DOM: text fields, scrolling).
