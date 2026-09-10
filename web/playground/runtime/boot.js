@@ -404,7 +404,8 @@ export async function boot({
     return [event.clientX - rect.left, event.clientY - rect.top];
   };
   canvas.addEventListener("pointerdown", (event) => {
-    canvas.setPointerCapture(event.pointerId);
+    // Synthetic events (tests) carry pointer ids the browser doesn't own.
+    try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
     bridge.uuiPointerEvent(0, ...localPoint(event));
   });
   canvas.addEventListener("pointermove", (event) => {

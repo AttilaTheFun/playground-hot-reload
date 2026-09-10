@@ -1542,14 +1542,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           const wrap = (kid, i, z) => {
             // `.overlay(alignment:)` / `.background(alignment:)`.
             const [ah, av] = ((((n.ch || [])[i] || {}).params || {}).layerAlign || "center,center").split(",");
+            // The layer box itself is pointer-transparent (a corner pencil
+            // must not swallow the page's touch scrolling); its content is not.
             return h("div", {
               key: `layer${i}`,
               style: {
                 position: "absolute", inset: 0, display: "flex", zIndex: z, overflow: "hidden",
+                pointerEvents: "none",
                 alignItems: av === "start" ? "flex-start" : av === "end" ? "flex-end" : "center",
                 justifyContent: ah === "start" ? "flex-start" : ah === "end" ? "flex-end" : "center",
               },
-            }, kid);
+            }, h("div", { style: { pointerEvents: "auto", display: "flex" } }, kid));
           };
           kids = kids.map((kid, i) => {
             const layer = layerOf(i);
