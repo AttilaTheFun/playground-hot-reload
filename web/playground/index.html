@@ -25,6 +25,14 @@
   <script src="./runtime/react.production.min.js"></script>
   <script src="./runtime/react-dom.production.min.js"></script>
   <script type="module">
+    // Surface uncaught errors on the page (no devtools on a phone).
+    const showError = (message) => {
+      let box = document.getElementById("uui-error");
+      if (!box) { box = document.createElement("pre"); box.id = "uui-error"; box.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;max-height:40%;overflow:auto;margin:0;padding:10px;font:12px monospace;color:#fff;background:#b00;border-radius:8px;z-index:2000;white-space:pre-wrap"; document.body.appendChild(box); }
+      box.textContent += message + "\n";
+    };
+    window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
+    window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
     import { boot } from "./runtime/boot.js";
     import { Dependencies } from "./app_bridge.js";
     import { createRunner } from "./hot_runner.js";
