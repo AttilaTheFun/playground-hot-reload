@@ -150,15 +150,20 @@ struct DemoCard<Content: View>: View {
                 .clipShape(RoundedRectangle(cornerRadius: 28))
                 .overlay(RoundedRectangle(cornerRadius: 28).stroke(Color.gray.opacity(0.35), lineWidth: 1))
                 .shadow(color: Color.black.opacity(0.25), radius: 24, x: 0, y: 12)
-                .overlay(alignment: .topTrailing) {
-                    Button { send("template:" + template) } label: { Image(systemName: "pencil") }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Edit \(title) in the Playground")
-                        .accessibilityIdentifier("edit-" + template)
-                        .padding(10)
-                }
                 .frame(maxWidth: 400)
-            Text(note).font(.footnote).foregroundColor(.secondary)
+            // The pencil sits beside the note, not over the example: the
+            // example's own bar has the top-trailing corner (2048's new-game
+            // button lives there), and a page control laid over an app's
+            // control is two things in one place.
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(note).font(.footnote).foregroundColor(.secondary)
+                Spacer(minLength: 0)
+                Button { send("template:" + template) } label: { Image(systemName: "pencil") }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Edit \(title) in the Playground")
+                    .accessibilityIdentifier("edit-" + template)
+            }
+            .frame(maxWidth: 400)
         }
         .padding(.vertical, 6)
     }

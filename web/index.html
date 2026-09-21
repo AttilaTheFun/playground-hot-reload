@@ -12,8 +12,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=3004500245"></script>
-  <script src="./runtime/react-dom.production.min.js?v=3004500245"></script>
+  <script src="./runtime/react.production.min.js?v=2821634064"></script>
+  <script src="./runtime/react-dom.production.min.js?v=2821634064"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -23,10 +23,10 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=3004500245";
+    import { boot } from "./runtime/boot.js?v=2821634064";
     // The demo runs use the Playground's service builders (its bridge links
     // the platform services; the splash's own does not).
-    import { Dependencies } from "./playground/app_bridge.js?v=3004500245";
+    import { Dependencies } from "./playground/app_bridge.js?v=2821634064";
 
     // The inline examples use the same browser services the Playground gives a build.
     const networking = { async request(url, method) {
@@ -76,7 +76,7 @@
       else if (command.startsWith("template:")) location.href = "./playground/?template=" + encodeURIComponent(command.slice(9));
     };
 
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=3004500245", rendererName: "react", dependencies: runDependencies })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=2821634064", rendererName: "react", dependencies: runDependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>

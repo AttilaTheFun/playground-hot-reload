@@ -2,7 +2,7 @@
 // through hot_host.js (the same generic browser host the iOS Playground's
 // web run uses), with a Stop bar. Logs (load status + guest print()) are kept
 // for the agent's `logs` tool.
-import { runHotBundle } from "./hot_host.js?v=4262951312";
+import { runHotBundle } from "./hot_host.js?v=2025723080";
 
 export function createRunner({ dependencies }) {
   let overlay = null;

@@ -12,7 +12,7 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { SYMBOLS } from "./symbols.js?v=3004500245";
+import { SYMBOLS } from "./symbols.js?v=2821634064";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -1881,6 +1881,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   function fixedSize(n) {
     let node = n;
     for (let depth = 0; node && depth < 6; depth++) {
+      // A GeometryReader is sized by its parent, never by what it built —
+      // its content was built for a size the host reported (or guessed
+      // before the first report), and letting that size back out as a
+      // minimum would pin the guess in place, with no way to correct it.
+      if (node.params && node.params.geo) break;
       const w = node.width != null ? node.width : undefined;
       const h2 = node.height != null ? node.height : undefined;
       if (w != null || h2 != null) return { w: w != null ? w : 0, h: h2 != null ? h2 : 0 };
