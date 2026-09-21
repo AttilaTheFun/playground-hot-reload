@@ -12,7 +12,7 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { SYMBOLS } from "./symbols.js?v=2900847632";
+import { SYMBOLS } from "./symbols.js?v=4262951312";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -174,6 +174,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     if (p.a11yHidden === "1") props["aria-hidden"] = "true";
     return props;
   }
+
+  // Node kinds that take input on their own, without a tap/drag/edit field.
+  const LAYER_INPUT_KINDS = new Set([
+    "scroll", "webview", "video", "toggle", "textField", "slider", "search", "picker", "menu", "map",
+    "datepicker", "codeeditor", "tabbar", "navbar", "presentation", "hostView", "surface",
+  ]);
 
   function interactive(n, props) {
     accessibility(n, props);
@@ -2293,6 +2299,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         // `.background(view)` / `.overlay(view)` layers: absolutely placed
         // over the box's area, behind (z -1) or over (z 1) the content.
         const layerOf = (i) => (((n.ch || [])[i] || {}).params || {}).layer;
+        // Whether a layer's subtree has anything that answers to a pointer:
+        // a tap, a drag, an edit channel, or a kind that handles its own
+        // input (a scroll, a control, a map).
+        const layerUsable = (node) => {
+          if (!node) return false;
+          if (node.tap || node.drag || node.edit) return true;
+          if (LAYER_INPUT_KINDS.has(node.k)) return true;
+          return (node.ch || []).some(layerUsable);
+        };
         if ((n.ch || []).some((c) => c.params && c.params.layer)) {
           s.position = "relative";
           s.zIndex = 0;
@@ -2300,7 +2315,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
             // `.overlay(alignment:)` / `.background(alignment:)`.
             const [ah, av] = ((((n.ch || [])[i] || {}).params || {}).layerAlign || "center,center").split(",");
             // The layer box itself is pointer-transparent (a corner pencil
-            // must not swallow the page's touch scrolling); its content is not.
+            // must not swallow the page's touch scrolling). Its content is
+            // pointer-transparent too unless something in it can be used:
+            // a stroked border or a shape backdrop fills the box, and a
+            // greedy layer that takes pointer events sits on top of every
+            // button beneath it.
+            const usable = layerUsable((n.ch || [])[i]);
             return h("div", {
               key: `layer${i}`,
               style: {
@@ -2311,7 +2331,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
               },
             }, h("div", {
               style: {
-                pointerEvents: "auto", display: "flex", minWidth: 0, minHeight: 0,
+                pointerEvents: usable ? "auto" : "none", display: "flex", minWidth: 0, minHeight: 0,
                 // A greedy layer (a shape backdrop, a stroked border) fills
                 // the box; content-sized layers sit at their alignment.
                 width: (n.ch || [])[i] && (n.ch || [])[i].growW ? "100%" : undefined,
