@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=2900847632";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js";
+export { Types } from "./swift_ffi_runtime.js?v=2900847632";
 /** The runtime type token for `TextMetrics` (generic calls). */
 export const TextMetricsType = {
     encode(w, v) {
@@ -151,6 +151,68 @@ export class SwiftNetworkService {
             throw new SwiftError(failure);
         return promise;
     }
+    send(url, method, headers, body) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.string.encode(w, url);
+        Types.string.encode(w, method);
+        Types.string.encode(w, headers);
+        Types.bytes.encode(w, body);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.bytes, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_NetworkService_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+    perform(url, method, headers, body) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.string.encode(w, url);
+        Types.string.encode(w, method);
+        Types.string.encode(w, headers);
+        Types.bytes.encode(w, body);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.bytes, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_NetworkService_invoke", handle, 2, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
 }
 /** Wraps a consumer-implemented `NetworkService` as the ordinal
  * dispatcher Swift's foreign proxy calls (method ordinal leads the
@@ -167,6 +229,30 @@ export function makeDispatcher_NetworkService(impl, runtime) {
                     throw new SwiftError("NetworkService.request is async and needs a runtime-bound dispatcher");
                 const rt = runtime;
                 Promise.resolve().then(() => impl.request(a0, a1)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.bytes, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 1: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.string.decode(r);
+                const a1 = Types.string.decode(r);
+                const a2 = Types.string.decode(r);
+                const a3 = Types.bytes.decode(r);
+                if (!runtime)
+                    throw new SwiftError("NetworkService.send is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.send(a0, a1, a2, a3)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.bytes, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 2: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.string.decode(r);
+                const a1 = Types.string.decode(r);
+                const a2 = Types.string.decode(r);
+                const a3 = Types.bytes.decode(r);
+                if (!runtime)
+                    throw new SwiftError("NetworkService.perform is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.perform(a0, a1, a2, a3)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.bytes, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
                 return new Uint8Array(0);
             }
         }
@@ -403,6 +489,34 @@ export class SwiftKeychainService {
             throw new SwiftError(failure);
         return promise;
     }
+    delete(key) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.string.encode(w, key);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return undefined;
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_KeychainService_invoke", handle, 2, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
 }
 /** Wraps a consumer-implemented `KeychainService` as the ordinal
  * dispatcher Swift's foreign proxy calls (method ordinal leads the
@@ -428,6 +542,15 @@ export function makeDispatcher_KeychainService(impl, runtime) {
                     throw new SwiftError("KeychainService.set is async and needs a runtime-bound dispatcher");
                 const rt = runtime;
                 Promise.resolve().then(() => impl.set(a0, a1)).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 2: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.string.decode(r);
+                if (!runtime)
+                    throw new SwiftError("KeychainService.delete is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.delete(a0)).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
                 return new Uint8Array(0);
             }
         }
@@ -764,6 +887,191 @@ export function makeDispatcher_PreferencesService(impl, runtime) {
             }
         }
         throw new SwiftError("unknown PreferencesService method ordinal");
+    };
+}
+export class SwiftTimerService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_TimerService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("TimerService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_TimerService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    delay(milliseconds) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.int32.encode(w, milliseconds);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return undefined;
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_TimerService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `TimerService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_TimerService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("TimerService.delay is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.delay(a0)).then((value) => resumeAsync(rt(), callId, new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0])), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown TimerService method ordinal");
+    };
+}
+export class SwiftOAuthService {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_platform_services_OAuthService_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("OAuthService used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_platform_services_OAuthService_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    redirectURI() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.string, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_OAuthService_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+    authorize(url) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        Types.string.encode(w, url);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.string, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_platform_services_OAuthService_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+}
+/** Wraps a consumer-implemented `OAuthService` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_OAuthService(impl, runtime) {
+    return (args) => {
+        const r = new BlobReader(args);
+        switch (Types.int32.decode(r)) {
+            case 0: {
+                const callId = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("OAuthService.redirectURI is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.redirectURI()).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 1: {
+                const callId = Types.int32.decode(r);
+                const a0 = Types.string.decode(r);
+                if (!runtime)
+                    throw new SwiftError("OAuthService.authorize is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.authorize(a0)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+        }
+        throw new SwiftError("unknown OAuthService method ordinal");
     };
 }
 export class SwiftGPUWebHost {
@@ -1820,6 +2128,30 @@ export const Dependencies = {
             },
         };
     },
+    timerService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_TimerService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_TimerService(impl, runtime)(args);
+            },
+        };
+    },
+    oAuthService: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_platform_services_OAuthService",
+            lazy,
+            dispatcher: (args, runtime) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_OAuthService(impl, runtime)(args);
+            },
+        };
+    },
     gPUWebHost: (provide, lazy = true) => {
         let impl;
         return {
@@ -1882,6 +2214,14 @@ export class SwiftUI {
     installPlatformPreferences(preferences) {
         const f0 = preferences instanceof SwiftPreferencesService ? [preferences.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_PreferencesService(preferences, () => this.runtime))];
         this.runtime.call("swift_ffi_platform_services_installPlatformPreferences", f0[0], f0[1]);
+    }
+    installPlatformTimer(timer) {
+        const f0 = timer instanceof SwiftTimerService ? [timer.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_TimerService(timer, () => this.runtime))];
+        this.runtime.call("swift_ffi_platform_services_installPlatformTimer", f0[0], f0[1]);
+    }
+    installPlatformOAuth(oauth) {
+        const f0 = oauth instanceof SwiftOAuthService ? [oauth.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_OAuthService(oauth, () => this.runtime))];
+        this.runtime.call("swift_ffi_platform_services_installPlatformOAuth", f0[0], f0[1]);
     }
     gpuConnect(host) {
         const f0 = host instanceof SwiftGPUWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_GPUWebHost(host, () => this.runtime))];
@@ -2033,6 +2373,8 @@ export async function load(wasm, options) {
     runtime.call("swift_ffi_platform_services_register_ImagePickerService");
     runtime.call("swift_ffi_platform_services_register_DeviceMotionService");
     runtime.call("swift_ffi_platform_services_register_PreferencesService");
+    runtime.call("swift_ffi_platform_services_register_TimerService");
+    runtime.call("swift_ffi_platform_services_register_OAuthService");
     runtime.call("swift_ffi_register_GPUWebHost");
     runtime.call("swift_ffi_register_WebHost");
     runtime.call("swift_ffi_playground_web_register_PlaygroundHostService");

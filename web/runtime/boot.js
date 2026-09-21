@@ -4,10 +4,10 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { load } from "../app_bridge.js";
-import { createRasterHost } from "./raster.js";
-import { createReactTreeRenderer } from "./react_renderer.js";
-import { applyPatch } from "./flat_tree.js";
+import { load } from "../app_bridge.js?v=1337352472";
+import { createRasterHost } from "./raster.js?v=1337352472";
+import { createReactTreeRenderer } from "./react_renderer.js?v=1337352472";
+import { applyPatch } from "./flat_tree.js?v=1337352472";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the
@@ -35,7 +35,7 @@ export async function boot({
     // static import would put swift_gpu's executor on EVERY page's critical
     // module graph (an unresolved ES module import evaluates NOTHING —
     // rendering as a silent blank page when the file isn't served).
-    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js");
+    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=1337352472");
     gpuHost = await createSwiftGPUHost(canvas);
     raster = createRasterHost({
       scale: window.devicePixelRatio || 1,
@@ -56,6 +56,28 @@ export async function boot({
       "position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column";
     canvas.style.display = "none";
     (canvas.parentElement || document.body).appendChild(treeContainer);
+    // A phone's soft keyboard shrinks the visual viewport, and Safari then
+    // scrolls the page to show the focused field, carrying the pinned bars
+    // off the top. Size the surface to the visual viewport instead, so the
+    // bars stay and only the content between them shrinks (the iOS shape).
+    if (window.visualViewport && canvas.parentElement === document.body) {
+      const viewport = window.visualViewport;
+      // The surface follows the keyboard both ways with the same easing
+      // (Safari animates the viewport in, not out), and the home-indicator
+      // inset is dropped while the keyboard covers it — nothing but the
+      // page's background sits between the composer and the keys.
+      treeContainer.style.transition = "height 0.25s ease-out, top 0.25s ease-out";
+      const fit = () => {
+        const keyboardUp = viewport.height < window.innerHeight - 120;
+        treeContainer.style.top = `${Math.max(0, viewport.offsetTop)}px`;
+        treeContainer.style.height = `${Math.round(viewport.height)}px`;
+        treeContainer.style.bottom = "auto";
+        treeContainer.style.setProperty("--uui-safe-bottom", keyboardUp ? "0px" : "env(safe-area-inset-bottom, 0px)");
+        if (window.scrollY) window.scrollTo(0, 0);
+      };
+      viewport.addEventListener("resize", fit);
+      viewport.addEventListener("scroll", fit);
+    }
     // React-path `Map` host views: the wasm module draws real SwiftMap tiles
     // (when swift_map is linked, `--config=map`) into the page canvas through
     // swift_gpu's WebGPU executor; the canvas is parked INSIDE the map
@@ -101,7 +123,7 @@ export async function boot({
               invalidate: () => scheduleRender(),
             });
           }
-          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js");
+          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=1337352472");
           gpuHost = await createSwiftGPUHost(canvas);
           bridge.gpuConnect(gpuHost);
           bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
@@ -444,7 +466,7 @@ export async function mountUniversalUI(container, { wasmURL, bundle, renderer = 
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=1337352472"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 

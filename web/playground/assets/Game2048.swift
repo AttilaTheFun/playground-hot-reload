@@ -10,6 +10,29 @@ struct Game2048App: App {
     }
 }
 
+
+/// Chrome that arrived in iOS 17 / macOS 14. This app targets iOS 16, so the
+/// two modifiers below are asked for only where they exist — the same shape a
+/// native app at this deployment target would take. On the platforms Universal
+/// UI implements itself there is no such floor, and `#available` says so.
+extension View {
+    @ViewBuilder func inlineNavigationTitle() -> some View {
+        if #available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *) {
+            toolbarTitleDisplayMode(.inline)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder func restingAtBottom() -> some View {
+        if #available(iOS 17.0, macOS 14.0, tvOS 17.0, watchOS 10.0, *) {
+            defaultScrollAnchor(.bottom)
+        } else {
+            self
+        }
+    }
+}
+
 // 2048 — a swipe-to-merge tile game. Swipe the board (the tiles that can
 // move follow your finger, the blocked ones stretch a little, then the move
 // commits when you let go); merged tiles slide into place and a new tile
@@ -73,7 +96,7 @@ struct Game2048Screen: View {
             }
         }
         .navigationTitle("2048")
-        .toolbarTitleDisplayMode(.inline)
+        .inlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(action: resetGame) {

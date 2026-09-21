@@ -22,8 +22,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js"></script>
-  <script src="./runtime/react-dom.production.min.js"></script>
+  <script src="./runtime/react.production.min.js?v=2900847632"></script>
+  <script src="./runtime/react-dom.production.min.js?v=2900847632"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -33,9 +33,9 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js";
-    import { Dependencies } from "./app_bridge.js";
-    import { createRunner } from "./hot_runner.js";
+    import { boot } from "./runtime/boot.js?v=2900847632";
+    import { Dependencies } from "./app_bridge.js?v=2900847632";
+    import { createRunner } from "./hot_runner.js?v=2900847632";
 
     // --- Platform services (docs/wasm_di.md): browser implementations ----
     const sandbox = "universalui.playground.";
@@ -92,6 +92,20 @@
         const response = await fetch(url, { method: method || "GET" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return new Uint8Array(await response.arrayBuffer());
+      },
+      async send(url, method, headers, body) {
+        const h = {}; for (const line of String(headers || "").split("\n")) { const i = line.indexOf(":"); if (i > 0) h[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
+        const response = await fetch(url, { method: method || "GET", headers: h, body: body && body.length ? body : undefined });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return new Uint8Array(await response.arrayBuffer());
+      },
+      async perform(url, method, headers, body) {
+        const h = {}; for (const line of String(headers || "").split("\n")) { const i = line.indexOf(":"); if (i > 0) h[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
+        const response = await fetch(url, { method: method || "GET", headers: h, body: body && body.length ? body : undefined });
+        const lines = []; response.headers.forEach((value, name) => lines.push(name + ": " + value)); lines.sort();
+        const head = new TextEncoder().encode(response.status + "\n" + lines.join("\n") + "\n\n");
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const out = new Uint8Array(head.length + bytes.length); out.set(head, 0); out.set(bytes, head.length); return out;
       },
     };
     const imagePicker = {
@@ -163,6 +177,7 @@
       keychain: Dependencies.keychainService(() => ({
         async get(key) { const v = localStorage.getItem(sandbox + "run-keychain:" + key); if (v === null) throw new Error("absent"); return fromBase64(v); },
         async set(value, key) { localStorage.setItem(sandbox + "run-keychain:" + key, toBase64(value)); },
+        async delete(key) { localStorage.removeItem(sandbox + "run-keychain:" + key); },
       })),
       analytics: Dependencies.analyticsService(() => ({ track(event) { console.log("[analytics]", event); } })),
       configuration: Dependencies.configurationService(() => ({ flag(key) { return key === "promo_banner"; } })),
@@ -175,7 +190,7 @@
     const runner = createRunner({ dependencies: runDependencies });
     // The app's run cover hosts the build: its `surface` host view mounts here.
     window.uuiSurfaceMount = (name, element, send) => { if (name === "run") runner.mount(element, send); };
-    const worker = new Worker("./compiler_worker.js", { type: "module" });
+    const worker = new Worker("./compiler_worker.js?v=2900847632", { type: "module" });
     const pending = new Map();
     let nextID = 1;
     worker.onmessage = (event) => {
@@ -248,7 +263,7 @@
     const forced = new URLSearchParams(location.search).get("renderer");
     if (forced === "react" || forced === "webGPU") preferences.set("renderer", forced === "webGPU" ? "gpu" : "native");
     const rendererName = preferences.get("renderer") === "gpu" ? "webGPU" : "react";
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm", rendererName, dependencies })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=2900847632", rendererName, dependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>

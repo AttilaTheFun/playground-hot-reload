@@ -12,8 +12,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js"></script>
-  <script src="./runtime/react-dom.production.min.js"></script>
+  <script src="./runtime/react.production.min.js?v=1337352472"></script>
+  <script src="./runtime/react-dom.production.min.js?v=1337352472"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -23,15 +23,28 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js";
+    import { boot } from "./runtime/boot.js?v=1337352472";
     // The demo runs use the Playground's service builders (its bridge links
     // the platform services; the splash's own does not).
-    import { Dependencies } from "./playground/app_bridge.js";
+    import { Dependencies } from "./playground/app_bridge.js?v=1337352472";
 
     // The inline examples use the same browser services the Playground gives a build.
     const networking = { async request(url, method) {
       const r = await fetch(url, { method: method || "GET" }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return new Uint8Array(await r.arrayBuffer()); } };
+      return new Uint8Array(await r.arrayBuffer()); },
+      async send(url, method, headers, body) {
+        const h = {}; for (const line of String(headers || "").split("\n")) { const i = line.indexOf(":"); if (i > 0) h[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
+        const r = await fetch(url, { method: method || "GET", headers: h, body: body && body.length ? body : undefined }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return new Uint8Array(await r.arrayBuffer()); },
+      async perform(url, method, headers, body) {
+        const h = {}; for (const line of String(headers || "").split("\n")) { const i = line.indexOf(":"); if (i > 0) h[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
+        const response = await fetch(url, { method: method || "GET", headers: h, body: body && body.length ? body : undefined });
+        const lines = []; response.headers.forEach((value, name) => lines.push(name + ": " + value)); lines.sort();
+        const head = new TextEncoder().encode(response.status + "\n" + lines.join("\n") + "\n\n");
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const out = new Uint8Array(head.length + bytes.length); out.set(head, 0); out.set(bytes, head.length); return out;
+      },
+    };
     const prefix = "universalui.splash.";
     const b64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
     const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
@@ -48,6 +61,7 @@
       keychain: Dependencies.keychainService(() => ({
         async get(key) { const v = localStorage.getItem(prefix + "keychain:" + key); if (v === null) throw new Error("absent"); return unb64(v); },
         async set(value, key) { localStorage.setItem(prefix + "keychain:" + key, b64(value)); },
+        async delete(key) { localStorage.removeItem(prefix + "keychain:" + key); },
       })),
       analytics: Dependencies.analyticsService(() => ({ track(event) { console.log("[analytics]", event); } })),
       configuration: Dependencies.configurationService(() => ({ flag(key) { return key === "promo_banner"; } })),
@@ -62,7 +76,7 @@
       else if (command.startsWith("template:")) location.href = "./playground/?template=" + encodeURIComponent(command.slice(9));
     };
 
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm", rendererName: "react", dependencies: runDependencies })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=1337352472", rendererName: "react", dependencies: runDependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>
