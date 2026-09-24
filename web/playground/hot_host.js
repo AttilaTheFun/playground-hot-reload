@@ -17,9 +17,9 @@
 // (dependency lookups answer "absent"); a v3 reactor that never touches
 // `dependencies[...]` runs exactly as it does under a host without DI.
 
-import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=2025723080";
-import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=2025723080";
-import { applyPatch } from "./runtime/flat_tree.js?v=2025723080";
+import { BlobWriter, Runtime, Tags, Types, decoder as ffiDecoder, encodeErrorBlob, foreignObjects, pendingCalls, registerForeign, wasiShim } from "./swift_ffi_runtime.js?v=3623859961";
+import { createReactTreeRenderer } from "./runtime/react_renderer.js?v=3623859961";
+import { applyPatch } from "./runtime/flat_tree.js?v=3623859961";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();

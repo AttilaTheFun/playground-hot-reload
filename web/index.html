@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Universal UI</title>
+  <link rel="icon" type="image/png" href="./assets/Playground-1024.png">
+  <link rel="apple-touch-icon" href="./assets/Playground-1024.png">
   <style>
     :root { color-scheme: light dark; }
     html, body { margin: 0; height: 100%; background: light-dark(#fff, rgb(18, 18, 20)); }
@@ -12,8 +14,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=2821634064"></script>
-  <script src="./runtime/react-dom.production.min.js?v=2821634064"></script>
+  <script src="./runtime/react.production.min.js?v=374920138"></script>
+  <script src="./runtime/react-dom.production.min.js?v=374920138"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -23,10 +25,10 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=2821634064";
+    import { boot } from "./runtime/boot.js?v=374920138";
     // The demo runs use the Playground's service builders (its bridge links
     // the platform services; the splash's own does not).
-    import { Dependencies } from "./playground/app_bridge.js?v=2821634064";
+    import { Dependencies } from "./playground/app_bridge.js?v=374920138";
 
     // The inline examples use the same browser services the Playground gives a build.
     const networking = { async request(url, method) {
@@ -76,7 +78,7 @@
       else if (command.startsWith("template:")) location.href = "./playground/?template=" + encodeURIComponent(command.slice(9));
     };
 
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=2821634064", rendererName: "react", dependencies: runDependencies })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=374920138", rendererName: "react", dependencies: runDependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>

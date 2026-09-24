@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Universal UI Playground</title>
+  <link rel="icon" type="image/png" href="./assets/Playground-1024.png">
+  <link rel="apple-touch-icon" href="./assets/Playground-1024.png">
   <style>
     :root { color-scheme: light dark; }
     html, body { margin: 0; height: 100%; background: light-dark(#fff, rgb(18, 18, 20)); overscroll-behavior: none; }
@@ -22,8 +24,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=2025723080"></script>
-  <script src="./runtime/react-dom.production.min.js?v=2025723080"></script>
+  <script src="./runtime/react.production.min.js?v=3623859961"></script>
+  <script src="./runtime/react-dom.production.min.js?v=3623859961"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -33,9 +35,9 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=2025723080";
-    import { Dependencies } from "./app_bridge.js?v=2025723080";
-    import { createRunner } from "./hot_runner.js?v=2025723080";
+    import { boot } from "./runtime/boot.js?v=3623859961";
+    import { Dependencies } from "./app_bridge.js?v=3623859961";
+    import { createRunner } from "./hot_runner.js?v=3623859961";
 
     // --- Platform services (docs/wasm_di.md): browser implementations ----
     const sandbox = "universalui.playground.";
@@ -190,7 +192,7 @@
     const runner = createRunner({ dependencies: runDependencies });
     // The app's run cover hosts the build: its `surface` host view mounts here.
     window.uuiSurfaceMount = (name, element, send) => { if (name === "run") runner.mount(element, send); };
-    const worker = new Worker("./compiler_worker.js?v=2025723080", { type: "module" });
+    const worker = new Worker("./compiler_worker.js?v=3623859961", { type: "module" });
     const pending = new Map();
     let nextID = 1;
     worker.onmessage = (event) => {
@@ -263,7 +265,7 @@
     const forced = new URLSearchParams(location.search).get("renderer");
     if (forced === "react" || forced === "webGPU") preferences.set("renderer", forced === "webGPU" ? "gpu" : "native");
     const rendererName = preferences.get("renderer") === "gpu" ? "webGPU" : "react";
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=2025723080", rendererName, dependencies })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=3623859961", rendererName, dependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>
