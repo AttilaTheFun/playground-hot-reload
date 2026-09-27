@@ -12,7 +12,7 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-import { SYMBOLS } from "./symbols.js?v=374920138";
+import { SYMBOLS } from "./symbols.js?v=2923179596";
 
 /// An SF Symbol drawn from the portable table as an inline SVG sized to
 /// the text it stands in (an `Image(systemName:)` is a text node carrying
@@ -172,6 +172,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     if (p.a11yValue !== undefined) props["aria-valuetext"] = p.a11yValue;
     if (p.a11yId !== undefined) props["data-testid"] = p.a11yId;
     if (p.a11yHidden === "1") props["aria-hidden"] = "true";
+    // `.id(_:)`: what a ScrollViewProxy's scrollTo finds.
+    if (p.vid !== undefined) props["data-vid"] = p.vid;
     return props;
   }
 
@@ -1412,8 +1414,83 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, insetContent("content", kids[contentIndex], hasEdgeScroll), bar);
   }
 
-  function BottomAnchoredScroll({ divProps, children }) {
+  // `ScrollViewProxy.scrollTo(id, anchor:)`: the core sends the latest
+  // request ("id|tick|anchor") to every scroll; the one holding a view with
+  // that id brings it to the anchor, once per request, after the render
+  // that carries it has laid out.
+  function applyScrollRequest(el, request, applied) {
+    if (!el || !request) return;
+    const [target, tick, anchor] = request.split("|");
+    if (applied.current === tick) return;
+    const escaped = window.CSS && CSS.escape ? CSS.escape(target) : target.replace(/"/g, '\\"');
+    const node = el.querySelector(`[data-vid="${escaped}"]`);
+    if (!node) return;
+    applied.current = tick;
+    // Measured against what is visible: inside the scroll padding the
+    // chrome over the scroll reserves (a bar, the composer), as iOS measures
+    // inside the content insets.
+    const cs = getComputedStyle(el);
+    const outer = el.getBoundingClientRect();
+    const box = { top: outer.top + (parseFloat(cs.scrollPaddingTop) || 0), bottom: outer.bottom - (parseFloat(cs.scrollPaddingBottom) || 0) };
+    box.height = box.bottom - box.top;
+    const r = node.getBoundingClientRect();
+    let delta;
+    if (anchor === "bottom") delta = r.bottom - box.bottom;
+    else if (anchor === "top") delta = r.top - box.top;
+    else if (anchor === "center") delta = (r.top + r.height / 2) - (box.top + box.height / 2);
+    else delta = r.top < box.top ? r.top - box.top : (r.bottom > box.bottom ? r.bottom - box.bottom : 0);
+    el.scrollTop += delta;
+  }
+
+  // A lazy List: report the rows on screen ("first,last" among the list's
+  // cells) after each render and as it scrolls, so the guest builds the
+  // rows around them.
+  function useListWindow(ref, windowId) {
+    const reported = R.useRef("");
+    const pending = R.useRef(false);
+    const report = () => {
+      const el = ref.current;
+      if (!el || !windowId) return;
+      const cells = [...el.querySelectorAll("[data-uui-cell]")].filter((c) => c.closest("[data-uui-scroll]") === el);
+      if (!cells.length) return;
+      const box = el.getBoundingClientRect();
+      // Binary search: the first cell reaching below the top, the last
+      // starting above the bottom.
+      const firstBelow = (y) => {
+        let lo = 0, hi = cells.length - 1, found = cells.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (cells[mid].getBoundingClientRect().bottom > y) { found = mid; hi = mid - 1; } else lo = mid + 1;
+        }
+        return found;
+      };
+      const first = firstBelow(box.top);
+      const last = Math.max(first, firstBelow(box.bottom));
+      const value = `${first},${last}`;
+      if (value !== reported.current) { reported.current = value; sendEvent(windowId, value); }
+    };
+    R.useLayoutEffect(report);
+    return () => {
+      if (pending.current) return;
+      pending.current = true;
+      requestAnimationFrame(() => { pending.current = false; report(); });
+    };
+  }
+
+  function RequestedScroll({ divProps, children, request, windowId }) {
     const ref = R.useRef(null);
+    const applied = R.useRef(null);
+    R.useLayoutEffect(() => applyScrollRequest(ref.current, request, applied));
+    const onWindowScroll = useListWindow(ref, windowId);
+    const onScroll = divProps.onScroll;
+    return h("div", { ...divProps, ref, onScroll: (e) => { if (onScroll) onScroll(e); onWindowScroll(); } }, children);
+  }
+
+  function BottomAnchoredScroll({ divProps, children, request, windowId }) {
+    const ref = R.useRef(null);
+    const applied = R.useRef(null);
+    R.useLayoutEffect(() => applyScrollRequest(ref.current, request, applied));
+    const onWindowScroll = useListWindow(ref, windowId);
     const pinned = R.useRef(true);
     const pin = () => {
       const el = ref.current;
@@ -1440,6 +1517,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       onScroll: (e) => {
         const el = e.currentTarget;
         pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+        if (divProps.onScroll) divProps.onScroll(e);
+        onWindowScroll();
       },
     }, children);
   }
@@ -1867,6 +1946,34 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   let renderDepth = 0;
 
+  // One list row, rendered with the list context it was reached under (the
+  // render walk carries that context in these module variables; a memoized
+  // row renders later, outside the walk, so it puts them back itself).
+  // Lazy lists: a row not built this frame is a placeholder the height the
+  // row last had here (keyed by the row's identity).
+  const rowHeights = new Map();
+
+  const ListCell = R.memo(function ListCell({ n, axis, listStyle, separators, sidebar, splitBack, depth }) {
+    R.useLayoutEffect(() => {
+      if (!n.key || (n.params || {}).placeholder) return;
+      const escaped = window.CSS && CSS.escape ? CSS.escape(n.key) : n.key.replace(/"/g, '\\"');
+      const el = document.querySelector(`[data-uui-key="${escaped}"]`);
+      if (el) rowHeights.set(n.key, el.getBoundingClientRect().height);
+    });
+    if ((n.params || {}).placeholder) {
+      return h("div", {
+        "data-uui-cell": "1", "data-uui-key": n.key,
+        style: { height: rowHeights.get(n.key) || 60, flex: "0 0 auto", alignSelf: "stretch" },
+      });
+    }
+    const saved = [currentListStyle, currentListSeparators, inSidebar, currentSplitBack, renderDepth];
+    currentListStyle = listStyle; currentListSeparators = separators; inSidebar = sidebar;
+    currentSplitBack = splitBack; renderDepth = depth;
+    try { return render(n, "cell", axis); }
+    finally { [currentListStyle, currentListSeparators, inSidebar, currentSplitBack, renderDepth] = saved; }
+  }, (a, b) => a.n === b.n && a.axis === b.axis && a.listStyle === b.listStyle
+    && a.separators === b.separators && a.sidebar === b.sidebar);
+
   function render(n, key, parentAxis) {
     renderDepth += 1;
     try {
@@ -2024,9 +2131,22 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     let kids;
     try {
       kids = (n.ch || []).map((c, i) => {
+        // Children key on their identity (the view's, `ForEach` ids in it),
+        // so a row keeps its DOM when rows come and go around it; the
+        // runtime's own unkeyed nodes key on position.
+        const childKey = c.key != null ? `k${c.key}|${c.k}` : `${i}:${c.k}${c.axis || ""}${c.view || ""}`;
+        // A list row renders behind a memo: a patch that leaves the row's
+        // node alone (the flat tree keeps its object) skips it entirely, as
+        // a collection view leaves its unchanged cells alone.
+        if (c.params && c.params.cell) {
+          return h(ListCell, {
+            key: childKey, n: c, axis: childAxis, listStyle: currentListStyle,
+            separators: currentListSeparators, sidebar: inSidebar, splitBack: currentSplitBack, depth: renderDepth,
+          });
+        }
         // The split's first column is its sidebar.
         if (isSplit && i === 0) inSidebar++;
-        try { return render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis); }
+        try { return render(c, childKey, childAxis); }
         finally { if (isSplit && i === 0) inSidebar--; }
       });
     } finally {
@@ -2173,9 +2293,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         }
         // `.defaultScrollAnchor(.bottom)` (a chat log): start at the bottom
         // and stay pinned there as content grows, until the user scrolls up.
+        const request = (n.params || {}).scrollTo;
+        const windowId = (n.params || {}).window;
         if ((n.params || {}).anchor === "bottom") {
-          return h(BottomAnchoredScroll, { key, divProps: props }, kids);
+          return h(BottomAnchoredScroll, { key, divProps: props, request, windowId }, kids);
         }
+        if (request || windowId) return h(RequestedScroll, { key, divProps: props, request, windowId }, kids);
         return h("div", props, kids);
       case "image": {
         const src = /^(https?:|data:|blob:)/.test(n.src) ? n.src : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
@@ -2365,8 +2488,18 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         // Semantic list rows carry a `cell` role instead of baked-in
         // chrome — this host's row idiom: comfortable padding, a minimum
         // touch height, and a hairline separator.
+        if ((n.params || {}).cell) {
+          props["data-uui-cell"] = "1";
+          if (n.key) props["data-uui-key"] = n.key;
+        }
         if ((n.params || {}).cell === "row") {
           const selected = (n.params || {}).selected === "1";
+          // `.listRowSeparator(.hidden)` on this row, or the list's.
+          const separators = currentListSeparators && (n.params || {}).noSeparator !== "1";
+          // Rows off screen skip layout and paint (sized as last laid out),
+          // the way a collection view only lays out what is visible.
+          s.contentVisibility = "auto";
+          s.containIntrinsicSize = "auto 44px";
           if (currentListStyle === "sidebar") {
             // macOS sidebar rows: compact, no separators, a rounded accent
             // selection with a white label.
@@ -2380,15 +2513,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
             s.boxSizing = "border-box";
             s.justifyContent = "center";
             if (currentListStyle === "insetGrouped") {
-              props.className = ((props.className || "") + " uui-ig-row" + (currentListSeparators ? "" : " uui-no-sep")).trim();
+              props.className = ((props.className || "") + " uui-ig-row" + (separators ? "" : " uui-no-sep")).trim();
               if (selected) s.background = "rgba(10,132,255,0.18)";
             } else if (currentListStyle === "plain") {
               // Messages' inbox: the row on the page, a hairline from the
               // text column, a gray highlight for the selected row.
-              props.className = ((props.className || "") + " uui-plain-row" + (currentListSeparators ? "" : " uui-no-sep")).trim();
+              props.className = ((props.className || "") + " uui-plain-row" + (separators ? "" : " uui-no-sep")).trim();
               if (selected) s.background = "rgba(120,120,128,0.22)";
             } else {
-              if (currentListSeparators) s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+              if (separators) s.borderBottom = "1px solid rgba(120,120,128,0.2)";
               if (selected) s.background = "rgba(10,132,255,0.18)";
             }
           }
