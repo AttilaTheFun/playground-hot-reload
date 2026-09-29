@@ -16,7 +16,7 @@ struct CounterScreen: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Hello from Universal UI!")
+            Text("Hello from Isomer!")
                 .font(.title2)
             Text("Tapped \(count) times")
                 .foregroundColor(.secondary)

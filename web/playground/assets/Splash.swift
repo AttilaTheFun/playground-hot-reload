@@ -1,5 +1,5 @@
-// The Universal UI site's front page — a post about the framework, written in
-// Universal UI's SwiftUI and compiled to wasm, with the example apps embedded
+// The Isomer site's front page — a post about the framework, written in
+// Isomer's SwiftUI and compiled to wasm, with the example apps embedded
 // INLINE as subviews (the same Counter / 2048 / Pokédex sources every example
 // app ships) inside framed cards you can use and scroll past. The pencil in
 // each card's corner (and in the page's corner) opens the Playground on that
@@ -26,7 +26,7 @@ struct SplashPage: View {
             VStack(alignment: .leading, spacing: 36) {
                 header
                 section("What it is") {
-                    Para("Universal UI is a reimplementation of SwiftUI. Apps are written against Apple's SwiftUI API — `import SwiftUI`, `@State`, `NavigationStack`, `List`, gestures, animations — and the same source compiles for every platform: on iOS and macOS it is Apple's SwiftUI, and everywhere else (the web, Android, Linux, Windows) it is this reimplementation, which turns the view tree into a compact render tree and hands it to a renderer.")
+                    Para("Isomer is a reimplementation of SwiftUI. Apps are written against Apple's SwiftUI API — `import SwiftUI`, `@State`, `NavigationStack`, `List`, gestures, animations — and the same source compiles for every platform: on iOS and macOS it is Apple's SwiftUI, and everywhere else (the web, Android, Linux, Windows) it is this reimplementation, which turns the view tree into a compact render tree and hands it to a renderer.")
                     Para("The whole page you are reading is one of those apps, running as WebAssembly in your browser. So are the examples below — they are the example apps' own screens, embedded here as ordinary subviews. Try them; then press the pencil to open the source in the Playground.")
                     DemoCard(title: "Counter", template: "Counter", note: "State and a button — the smallest app.", send: send) {
                         NavigationStack { CounterScreen() }
@@ -45,7 +45,7 @@ struct SplashPage: View {
                     Para("In the browser it goes one step further: the Playground compiles Swift itself, in the page, with swift-frontend and wasm-ld compiled to WebAssembly. Edit this page there and Run, and the site recompiles without leaving the browser.")
                 }
                 section("Pluggable GPUs") {
-                    Para("The SwiftGPU renderer draws through a GPU abstraction with pluggable backends — Metal on Apple, OpenGL ES on Android, WebGPU in the browser — and a host can bring its own device. The same abstraction powers SwiftMap, an OpenStreetMap renderer that drops into Universal UI apps as a map view on every platform.")
+                    Para("The SwiftGPU renderer draws through a GPU abstraction with pluggable backends — Metal on Apple, OpenGL ES on Android, WebGPU in the browser — and a host can bring its own device. The same abstraction powers SwiftMap, an OpenStreetMap renderer that drops into Isomer apps as a map view on every platform.")
                 }
                 section("Dependency injection") {
                     Para("Apps reach the platform through injected services rather than platform APIs: networking, files, the keychain, analytics, feature flags, the image picker, device motion. Each is a Swift protocol the host implements natively — URLSession and the Keychain on Apple, HttpURLConnection on Android, fetch and localStorage on the web — and injects at launch, so a feature's business logic is the same everywhere and testable anywhere.")
@@ -90,7 +90,7 @@ struct SplashPage: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Universal UI").font(.system(size: 44, weight: .bold))
+            Text("Isomer").font(.system(size: 44, weight: .bold))
             Text("SwiftUI, everywhere.").font(.system(size: 26, weight: .semibold)).foregroundColor(.secondary)
             Text("This website is written in SwiftUI. You can edit it and re-compile the code without leaving the page.")
                 .font(.system(size: 15, weight: .medium))
@@ -109,7 +109,7 @@ struct SplashPage: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 6) {
             Divider()
-            Text("Universal UI · SwiftUI reimplementation · wasm, Android, Linux, Windows, Apple")
+            Text("Isomer · SwiftUI reimplementation · wasm, Android, Linux, Windows, Apple")
                 .font(.footnote).foregroundColor(.secondary)
         }
     }

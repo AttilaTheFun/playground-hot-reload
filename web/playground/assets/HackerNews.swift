@@ -8,7 +8,7 @@ struct HackerNewsApp: App {
     var body: some Scene { WindowGroup { NavigationStack { HackerNewsScreen() } } }
 }
 
-/// The example apps' UniversalBridge, over the core runtime.
+/// The example apps' IsomerBridge, over the core runtime.
 enum Bridge {
     static func log(_ message: String) { print(message) }
     static func openURL(_ url: String) { Runtime.shared.openURL(external: url) }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Universal UI</title>
+  <title>Isomer</title>
   <link rel="icon" type="image/png" href="./assets/Playground-1024.png">
   <link rel="apple-touch-icon" href="./assets/Playground-1024.png">
   <style>
@@ -14,8 +14,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=3344572710"></script>
-  <script src="./runtime/react-dom.production.min.js?v=3344572710"></script>
+  <script src="./runtime/react.production.min.js?v=1376831037"></script>
+  <script src="./runtime/react-dom.production.min.js?v=1376831037"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -25,10 +25,10 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=3344572710";
+    import { boot } from "./runtime/boot.js?v=1376831037";
     // The demo runs use the Playground's service builders (its bridge links
     // the platform services; the splash's own does not).
-    import { Dependencies } from "./playground/app_bridge.js?v=3344572710";
+    import { Dependencies } from "./playground/app_bridge.js?v=1376831037";
 
     // The inline examples use the same browser services the Playground gives a build.
     const networking = { async request(url, method) {
@@ -47,7 +47,7 @@
         const out = new Uint8Array(head.length + bytes.length); out.set(head, 0); out.set(bytes, head.length); return out;
       },
     };
-    const prefix = "universalui.splash.";
+    const prefix = "isomer.splash.";
     const b64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
     const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
     const runDependencies = {
@@ -78,7 +78,7 @@
       else if (command.startsWith("template:")) location.href = "./playground/?template=" + encodeURIComponent(command.slice(9));
     };
 
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=3344572710", rendererName: "react", dependencies: runDependencies })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=1376831037", rendererName: "react", dependencies: runDependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Universal UI Playground</title>
+  <title>Isomer Playground</title>
   <link rel="icon" type="image/png" href="./assets/Playground-1024.png">
   <link rel="apple-touch-icon" href="./assets/Playground-1024.png">
   <style>
@@ -24,8 +24,8 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="./runtime/react.production.min.js?v=547718871"></script>
-  <script src="./runtime/react-dom.production.min.js?v=547718871"></script>
+  <script src="./runtime/react.production.min.js?v=478116793"></script>
+  <script src="./runtime/react-dom.production.min.js?v=478116793"></script>
   <script type="module">
     // Surface uncaught errors on the page (no devtools on a phone).
     const showError = (message) => {
@@ -35,12 +35,12 @@
     };
     window.addEventListener("error", (e) => showError((e.message || String(e.error)) + (e.error && e.error.stack ? "\n" + String(e.error.stack).split("\n").slice(0, 6).join("\n") : "")));
     window.addEventListener("unhandledrejection", (e) => showError("unhandled: " + (e.reason && e.reason.stack ? String(e.reason.stack).split("\n").slice(0, 6).join("\n") : String(e.reason))));
-    import { boot } from "./runtime/boot.js?v=547718871";
-    import { Dependencies } from "./app_bridge.js?v=547718871";
-    import { createRunner } from "./hot_runner.js?v=547718871";
+    import { boot } from "./runtime/boot.js?v=478116793";
+    import { Dependencies } from "./app_bridge.js?v=478116793";
+    import { createRunner } from "./hot_runner.js?v=478116793";
 
     // --- Platform services (docs/wasm_di.md): browser implementations ----
-    const sandbox = "universalui.playground.";
+    const sandbox = "isomer.playground.";
     const toBase64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
     const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
     // Site assets (the sample templates) are readable as files under assets/.
@@ -192,7 +192,7 @@
     const runner = createRunner({ dependencies: runDependencies });
     // The app's run cover hosts the build: its `surface` host view mounts here.
     window.uuiSurfaceMount = (name, element, send) => { if (name === "run") runner.mount(element, send); };
-    const worker = new Worker("./compiler_worker.js?v=547718871", { type: "module" });
+    const worker = new Worker("./compiler_worker.js?v=478116793", { type: "module" });
     const pending = new Map();
     let nextID = 1;
     worker.onmessage = (event) => {
@@ -225,7 +225,7 @@
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/AttilaTheFun/universal_ui", "X-Title": "Universal UI Playground (web)" },
+            "HTTP-Referer": "https://github.com/AttilaTheFun/isomer", "X-Title": "Isomer Playground (web)" },
           body,
         });
         return await response.text();
@@ -265,7 +265,7 @@
     const forced = new URLSearchParams(location.search).get("renderer");
     if (forced === "react" || forced === "webGPU") preferences.set("renderer", forced === "webGPU" ? "gpu" : "native");
     const rendererName = preferences.get("renderer") === "gpu" ? "webGPU" : "react";
-    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=547718871", rendererName, dependencies })
+    boot({ canvas: document.getElementById("canvas"), wasmURL: "./app.wasm?v=478116793", rendererName, dependencies })
       .catch((error) => { document.body.insertAdjacentHTML("beforeend", '<pre id="error"></pre>'); document.getElementById("error").textContent = String(error); });
   </script>
 </body>
