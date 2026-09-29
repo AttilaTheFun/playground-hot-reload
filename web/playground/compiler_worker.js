@@ -112,7 +112,7 @@ async function compileInBrowser(source) {
   // Wired when tools/browser_toolchain produces the bundle: instantiate
   // swift-frontend.wasm with a WASI shim + virtual FS (resource dir, SDK
   // modules, work/main.swift), run `-frontend -c …`, then wasm-ld.wasm.
-  const { compileWithToolchain } = await import("./toolchain_driver.js?v=478116793");
+  const { compileWithToolchain } = await import("./toolchain_driver.js?v=566740269");
   return compileWithToolchain(toolchain, source);
 }
 
