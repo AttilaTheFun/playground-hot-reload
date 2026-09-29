@@ -17,16 +17,22 @@ let toolchainState = "unknown";
 async function loadToolchain() {
   if (toolchain || toolchainState === "absent") return;
   try {
-    const response = await fetch("./toolchain/manifest.json", { cache: "force-cache" });
+    // The manifest is revalidated every load (a cheap ETag check); the big
+    // files it names are fetched under its version (the content's hash),
+    // so a cached copy is only ever the one this manifest describes. A
+    // stale manifest from the HTTP cache paired an old SDK with a newer page.
+    const response = await fetch("./toolchain/manifest.json", { cache: "no-cache" });
     if (!response.ok) { toolchainState = "absent"; return; }
     const manifest = await response.json();
+    const version = String(manifest.version || 1);
+    const versioned = (name) => "./toolchain/" + name + "?v=" + encodeURIComponent(version);
     const files = new Map();
     if (manifest.bundle) {
       // One blob, sliced by the manifest's offsets (thousands of small
       // module files would be thousands of fetches otherwise).
       // Prefer the gzipped blob (a static host serves it as-is); fall back
       // to the raw one when only that is published.
-      let response = await fetch("./toolchain/" + manifest.bundle + ".gz", { cache: "force-cache" });
+      let response = await fetch(versioned(manifest.bundle + ".gz"), { cache: "force-cache" });
       let blob;
       if (response.ok) {
         const bytes = new Uint8Array(await response.arrayBuffer());
@@ -34,13 +40,13 @@ async function loadToolchain() {
           ? new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
           : bytes;
       } else {
-        response = await fetch("./toolchain/" + manifest.bundle, { cache: "force-cache" });
+        response = await fetch(versioned(manifest.bundle), { cache: "force-cache" });
         blob = new Uint8Array(await response.arrayBuffer());
       }
       for (const entry of manifest.files || []) files.set(entry.path, blob.subarray(entry.offset, entry.offset + entry.size));
     } else {
       for (const entry of manifest.files || []) {
-        const bytes = new Uint8Array(await (await fetch("./toolchain/" + entry.path, { cache: "force-cache" })).arrayBuffer());
+        const bytes = new Uint8Array(await (await fetch(versioned(entry.path), { cache: "force-cache" })).arrayBuffer());
         files.set(entry.path, bytes);
       }
     }
@@ -49,7 +55,14 @@ async function loadToolchain() {
     // STREAMING straight from the (inflated) response — the browser's code
     // cache then keys on the URL and skips the ~100 MB compile on later
     // loads — and kept as WebAssembly.Module objects, not bytes.
-    const cache = await (self.caches ? caches.open("uui-toolchain-v" + (manifest.version || 1)) : null);
+    const cacheName = "uui-toolchain-v" + version;
+    if (self.caches) {
+      // Earlier toolchains' compilers (~150 MB each) go.
+      for (const name of await caches.keys()) {
+        if (name.startsWith("uui-toolchain-") && name !== cacheName) await caches.delete(name);
+      }
+    }
+    const cache = await (self.caches ? caches.open(cacheName) : null);
     const fetchCached = async (url) => {
       if (cache) { const hit = await cache.match(url); if (hit) return hit; }
       const response = await fetch(url);
@@ -66,9 +79,9 @@ async function loadToolchain() {
       return new Blob([bytes]).stream();
     };
     const partStream = async (name) => {
-      const gz = await fetchCached("./toolchain/" + name + ".gz");
+      const gz = await fetchCached(versioned(name + ".gz"));
       if (gz.ok) return inflated(gz);
-      const raw = await fetchCached("./toolchain/" + name);
+      const raw = await fetchCached(versioned(name));
       if (!raw.ok) throw new Error("toolchain: missing " + name);
       return raw.body;
     };
@@ -99,7 +112,7 @@ async function compileInBrowser(source) {
   // Wired when tools/browser_toolchain produces the bundle: instantiate
   // swift-frontend.wasm with a WASI shim + virtual FS (resource dir, SDK
   // modules, work/main.swift), run `-frontend -c …`, then wasm-ld.wasm.
-  const { compileWithToolchain } = await import("./toolchain_driver.js?v=3269751482");
+  const { compileWithToolchain } = await import("./toolchain_driver.js?v=547718871");
   return compileWithToolchain(toolchain, source);
 }
 
