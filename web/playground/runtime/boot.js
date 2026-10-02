@@ -4,11 +4,11 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { importedFilesWasi } from "./imported_files.js?v=411930521";
-import { load } from "../app_bridge.js?v=411930521";
-import { createRasterHost } from "./raster.js?v=411930521";
-import { createReactTreeRenderer } from "./react_renderer.js?v=411930521";
-import { applyPatch } from "./flat_tree.js?v=411930521";
+import { importedFilesWasi } from "./imported_files.js?v=3704163152";
+import { load } from "../app_bridge.js?v=3704163152";
+import { createRasterHost } from "./raster.js?v=3704163152";
+import { createReactTreeRenderer } from "./react_renderer.js?v=3704163152";
+import { applyPatch } from "./flat_tree.js?v=3704163152";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the
@@ -56,7 +56,7 @@ export async function boot({
     // static import would put swift_gpu's executor on EVERY page's critical
     // module graph (an unresolved ES module import evaluates NOTHING —
     // rendering as a silent blank page when the file isn't served).
-    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=411930521");
+    const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=3704163152");
     gpuHost = await createSwiftGPUHost(canvas);
     raster = createRasterHost({
       scale: window.devicePixelRatio || 1,
@@ -218,7 +218,7 @@ export async function boot({
               invalidate: () => scheduleRender(),
             });
           }
-          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=411930521");
+          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js?v=3704163152");
           gpuHost = await createSwiftGPUHost(canvas);
           bridge.gpuConnect(gpuHost);
           bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
@@ -573,7 +573,7 @@ export async function mountIsomer(container, { wasmURL, bundle, renderer = "webG
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=411930521"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=3704163152"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 
