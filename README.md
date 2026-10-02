@@ -1,3 +1,10 @@
-# Playground hot-reload site
+# Playground releases
 
-A versions list for the Universal UI Playground's hot reloaders: versions.json (newest first) plus the wasm bundles. Published with tools/playground/publish_hot_reload.sh.
+Compiled output of the Playground, an app for writing SwiftUI on the device
+and running it there, built on Isomer. Nothing here is source.
+
+- `web/`: the site (https://attilathefun.github.io/playground_isomer_releases/web/),
+  with the web Playground and its in-browser Swift compiler under
+  `web/playground/`.
+- `versions.json` and the `.wasm` files beside it: a demo feed for the iPhone
+  Playground's hot reloader (newest first).

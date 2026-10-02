@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=566740269";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeError, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, nextCallId, pendingCalls, registerForeign, registry, resumeAsync, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=411930521";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js?v=566740269";
+export { Types } from "./swift_ffi_runtime.js?v=411930521";
 /** The runtime type token for `TextMetrics` (generic calls). */
 export const TextMetricsType = {
     encode(w, v) {
@@ -1714,11 +1714,50 @@ export class SwiftPlaygroundHostService {
         if (failure !== null)
             throw new SwiftError(failure);
     }
-    logs() {
+    canRunOnWeb() {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         const staged = stageBytes(this.runtime, w.data());
         const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 3, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.bool, result);
+    }
+    runOnWeb() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const callId = nextCallId();
+        Types.int32.encode(w, callId);
+        const promise = new Promise((resolve, reject) => {
+            pendingCalls.set(callId, {
+                resolve: resolve,
+                decode: (blob) => {
+                    const failure = errorMessageOf(blob);
+                    if (failure !== null) {
+                        reject(new SwiftError(failure));
+                        return undefined;
+                    }
+                    return decodeWith(Types.string, blob);
+                },
+            });
+        });
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 4, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return promise;
+    }
+    logs() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 5, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1746,7 +1785,7 @@ export class SwiftPlaygroundHostService {
             });
         });
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 4, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 6, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1758,7 +1797,7 @@ export class SwiftPlaygroundHostService {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 5, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 7, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1771,7 +1810,7 @@ export class SwiftPlaygroundHostService {
         const w = new BlobWriter();
         Types.string.encode(w, key);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 6, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 8, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1782,7 +1821,7 @@ export class SwiftPlaygroundHostService {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 7, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 9, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1794,7 +1833,7 @@ export class SwiftPlaygroundHostService {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 8, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 10, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1806,7 +1845,7 @@ export class SwiftPlaygroundHostService {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 9, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 11, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1834,7 +1873,7 @@ export class SwiftPlaygroundHostService {
             });
         });
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 10, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 12, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1863,7 +1902,7 @@ export class SwiftPlaygroundHostService {
             });
         });
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 11, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 13, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1891,7 +1930,7 @@ export class SwiftPlaygroundHostService {
             });
         });
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 12, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 14, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1921,7 +1960,7 @@ export class SwiftPlaygroundHostService {
             });
         });
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 13, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_playground_web_PlaygroundHostService_invoke", handle, 15, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -1959,9 +1998,20 @@ export function makeDispatcher_PlaygroundHostService(impl, runtime) {
                 return new Uint8Array(0);
             }
             case 3: {
-                return encodeWith(Types.string, impl.logs());
+                return encodeWith(Types.bool, impl.canRunOnWeb());
             }
             case 4: {
+                const callId = Types.int32.decode(r);
+                if (!runtime)
+                    throw new SwiftError("PlaygroundHostService.runOnWeb is async and needs a runtime-bound dispatcher");
+                const rt = runtime;
+                Promise.resolve().then(() => impl.runOnWeb()).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
+                return new Uint8Array(0);
+            }
+            case 5: {
+                return encodeWith(Types.string, impl.logs());
+            }
+            case 6: {
                 const callId = Types.int32.decode(r);
                 const a0 = Types.string.decode(r);
                 if (!runtime)
@@ -1970,24 +2020,24 @@ export function makeDispatcher_PlaygroundHostService(impl, runtime) {
                 Promise.resolve().then(() => impl.chat(a0)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
                 return new Uint8Array(0);
             }
-            case 5: {
+            case 7: {
                 return encodeWith(Types.bool, impl.hasKey());
             }
-            case 6: {
+            case 8: {
                 const a0 = Types.string.decode(r);
                 impl.setKey(a0);
                 return new Uint8Array(0);
             }
-            case 7: {
+            case 9: {
                 return encodeWith(Types.string, impl.toolchainStatus());
             }
-            case 8: {
+            case 10: {
                 return encodeWith(Types.string, impl.requestedTemplate());
             }
-            case 9: {
+            case 11: {
                 return encodeWith(Types.string, impl.uiTree());
             }
-            case 10: {
+            case 12: {
                 const callId = Types.int32.decode(r);
                 const a0 = Types.string.decode(r);
                 if (!runtime)
@@ -1996,7 +2046,7 @@ export function makeDispatcher_PlaygroundHostService(impl, runtime) {
                 Promise.resolve().then(() => impl.tap(a0)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
                 return new Uint8Array(0);
             }
-            case 11: {
+            case 13: {
                 const callId = Types.int32.decode(r);
                 const a0 = Types.string.decode(r);
                 const a1 = Types.string.decode(r);
@@ -2006,7 +2056,7 @@ export function makeDispatcher_PlaygroundHostService(impl, runtime) {
                 Promise.resolve().then(() => impl.typeText(a0, a1)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
                 return new Uint8Array(0);
             }
-            case 12: {
+            case 14: {
                 const callId = Types.int32.decode(r);
                 const a0 = Types.string.decode(r);
                 if (!runtime)
@@ -2015,7 +2065,7 @@ export function makeDispatcher_PlaygroundHostService(impl, runtime) {
                 Promise.resolve().then(() => impl.submit(a0)).then((value) => resumeAsync(rt(), callId, encodeWith(Types.string, value)), (error) => resumeAsync(rt(), callId, encodeError(error instanceof Error ? error.message : String(error))));
                 return new Uint8Array(0);
             }
-            case 13: {
+            case 15: {
                 const callId = Types.int32.decode(r);
                 const a0 = Types.string.decode(r);
                 const a1 = Types.double.decode(r);
@@ -2291,6 +2341,10 @@ export class SwiftUI {
         this.runtime.call("swift_ffi_uuiHostEvent", b0.ptr, b0.len, b1.ptr, b1.len);
         b0.drop();
         b1.drop();
+    }
+    installPlaygroundHost(host) {
+        const f0 = host instanceof SwiftPlaygroundHostService ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_PlaygroundHostService(host, () => this.runtime))];
+        this.runtime.call("swift_ffi_playground_web_installPlaygroundHost", f0[0], f0[1]);
     }
 }
 /** Instantiates the reactor and returns the bridged API. `wasi`
